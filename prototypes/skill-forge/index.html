@@ -1,0 +1,341 @@
+<title>Skill Forge</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Lilita+One&display=swap">
+<style>
+  :root {
+    --ground: #ECEEF6;
+    --surface: #FFFFFF;
+    --surface-2: #F4F5FB;
+    --ink: #161A2E;
+    --muted: #596080;
+    --line: #D5D9EA;
+    --accent: #E4502A;
+    --accent-ink: #FFFFFF;
+    --focus: #2D63F0;
+    --arena: #E6E9F4;
+    --grid: #D3D8EA;
+    --enemy: #8A91AD;
+    --seg-structure: #3A405E;
+    --seg-cooldown: #A9AFC8;
+    --t-common: #6F7A93;
+    --t-rare: #1E9E54;
+    --t-epic: #7F4CEB;
+    --t-legendary: #C98500;
+    --t-godly: #DC2458;
+    --shadow: 0 1px 2px rgba(22, 26, 46, 0.05), 0 10px 28px rgba(22, 26, 46, 0.07);
+    --font-display: 'Lilita One', 'Arial Rounded MT Bold', 'Trebuchet MS', sans-serif;
+    --font-body: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0D0F1E;
+      --surface: #161930;
+      --surface-2: #1E2240;
+      --ink: #ECEEFA;
+      --muted: #A2A8C8;
+      --line: #2C3152;
+      --accent: #FF6E47;
+      --accent-ink: #1B0C06;
+      --focus: #86A6FF;
+      --arena: #111429;
+      --grid: #232848;
+      --enemy: #6E7596;
+      --seg-structure: #C9CDE6;
+      --seg-cooldown: #5B628A;
+      --t-common: #9AA4BD;
+      --t-rare: #3DCB78;
+      --t-epic: #A98BFF;
+      --t-legendary: #FFBF2F;
+      --t-godly: #FF5485;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0D0F1E;
+    --surface: #161930;
+    --surface-2: #1E2240;
+    --ink: #ECEEFA;
+    --muted: #A2A8C8;
+    --line: #2C3152;
+    --accent: #FF6E47;
+    --accent-ink: #1B0C06;
+    --focus: #86A6FF;
+    --arena: #111429;
+    --grid: #232848;
+    --enemy: #6E7596;
+    --seg-structure: #C9CDE6;
+    --seg-cooldown: #5B628A;
+    --t-common: #9AA4BD;
+    --t-rare: #3DCB78;
+    --t-epic: #A98BFF;
+    --t-legendary: #FFBF2F;
+    --t-godly: #FF5485;
+    --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.5 var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding-inline: clamp(16px, 4vw, 40px);
+    padding-block: 32px 72px;
+    display: grid;
+    gap: 28px;
+  }
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  button, input { font: inherit; color: inherit; }
+  button {
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border-radius: 10px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Masthead */
+  .masthead { display: grid; gap: 10px; }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(44px, 8vw, 76px); line-height: 0.92; letter-spacing: 0.01em; }
+  .lede { max-width: 64ch; color: var(--muted); font-size: 17px; }
+
+  /* Controls */
+  .controls {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    display: grid;
+    gap: 14px;
+  }
+  .control-group { display: grid; gap: 8px; }
+  .control-label { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .control-label small { text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: 6px; }
+  .segmented, .ess-grid, .examples { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg-btn, .ess-btn, .example { border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+  .seg-btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  .seg-btn.tier-common[aria-pressed="true"] { background: var(--t-common); border-color: var(--t-common); color: #fff; }
+  .seg-btn.tier-rare[aria-pressed="true"] { background: var(--t-rare); border-color: var(--t-rare); color: #fff; }
+  .seg-btn.tier-epic[aria-pressed="true"] { background: var(--t-epic); border-color: var(--t-epic); color: #fff; }
+  .seg-btn.tier-legendary[aria-pressed="true"] { background: var(--t-legendary); border-color: var(--t-legendary); color: #1d1300; }
+  .seg-btn.tier-godly[aria-pressed="true"] { background: var(--t-godly); border-color: var(--t-godly); color: #fff; }
+  .ess-btn { display: inline-flex; align-items: center; gap: 7px; }
+  .ess-btn::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+  .ess-btn[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 18%, var(--surface)); }
+  .control-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); padding: 10px 18px; font-size: 15px; }
+  .primary:hover:not(:disabled) { border-color: var(--ink); }
+  .code-form { display: flex; gap: 6px; flex: 1 1 260px; max-width: 460px; }
+  .code-form input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .error { color: var(--t-godly); font-size: 14px; }
+  .examples-row { display: grid; gap: 8px; }
+  .example { background: transparent; }
+
+  /* Section heads */
+  .section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 14px; }
+  .section-head h2 { font-family: var(--font-display); font-weight: 400; font-size: 26px; letter-spacing: 0.01em; }
+  .section-head p { color: var(--muted); font-size: 14px; }
+
+  /* Cards */
+  .draft { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
+  .card {
+    --tier: var(--t-common);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+    box-shadow: var(--shadow);
+    min-width: 0;
+  }
+  .tier-rare { --tier: var(--t-rare); }
+  .tier-epic { --tier: var(--t-epic); }
+  .tier-legendary { --tier: var(--t-legendary); }
+  .tier-godly { --tier: var(--t-godly); }
+  .card.tier-legendary { border-color: color-mix(in srgb, var(--t-legendary) 55%, var(--line)); }
+  @property --spin { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+  .card.tier-godly {
+    border: 2px solid transparent;
+    background:
+      linear-gradient(var(--surface), var(--surface)) padding-box,
+      conic-gradient(from var(--spin), #FF3D6E, #FFB400, #9D5CFF, #22D3EE, #FF3D6E) border-box;
+    animation: spin 6s linear infinite;
+  }
+  @keyframes spin { to { --spin: 360deg; } }
+  @media (prefers-reduced-motion: reduce) { .card.tier-godly { animation: none; } }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tier-pill {
+    background: var(--tier);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 6px;
+    padding: 3px 8px;
+  }
+  .tier-legendary .tier-pill { color: #1d1300; }
+  .ess-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ess { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .ess::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+  .card-name { font-family: var(--font-display); font-weight: 400; font-size: 29px; line-height: 1.02; letter-spacing: 0.01em; }
+  .epithet { font-style: italic; color: var(--muted); margin-top: -6px; }
+  .lineage { font-size: 13px; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 6px 10px; }
+  .telegraph { width: 100%; height: auto; display: block; }
+  .meta { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  .meta li { font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; }
+  .meta .intent { color: var(--muted); }
+  .meta .law-chip { border-color: var(--tier); color: var(--tier); }
+  .rules { display: grid; gap: 6px; font-size: 15px; }
+  .dna summary { cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .dna ul { list-style: none; margin: 8px 0 0; padding: 10px; background: var(--surface-2); border-radius: 10px; display: grid; gap: 4px; overflow-x: auto; }
+  .dna-row {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    column-gap: 8px;
+    padding-left: calc(var(--depth) * 14px);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .dna-kind { color: var(--muted); }
+  .dna-detail { grid-column: 2; color: var(--muted); }
+  .key { color: var(--t-legendary); }
+  .law { color: var(--t-godly); font-weight: 600; }
+  .budget { display: grid; gap: 6px; }
+  .budget-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--surface-2); gap: 2px; }
+  .seg { display: block; min-width: 3px; }
+  .seg.structure, .budget-legend i.structure { background: var(--seg-structure); }
+  .seg.numbers, .budget-legend i.numbers { background: var(--ess); }
+  .seg.cooldown, .budget-legend i.cooldown { background: var(--seg-cooldown); }
+  .seg.unspent { background: transparent; }
+  .budget-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .budget-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .budget-total { margin-left: auto; font-weight: 600; color: var(--ink); }
+  .card-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 12px; }
+  .code { font-family: var(--font-mono); font-size: 12px; font-weight: 400; background: transparent; border-style: dashed; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+  .code.copied::after { content: ' copied'; color: var(--t-rare); font-family: var(--font-body); font-weight: 600; }
+  .actions { display: flex; gap: 6px; }
+
+  /* Lower panels */
+  .lower { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+  .trace { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 10px; }
+  .trace li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 28px 92px minmax(0, 1fr);
+    column-gap: 10px;
+    align-items: baseline;
+  }
+  .trace li::before { content: counter(step); font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .step-k { font-weight: 700; }
+  .step-v { font-weight: 600; overflow-wrap: anywhere; }
+  .step-why { grid-column: 3; color: var(--muted); font-size: 13px; }
+  @media (max-width: 480px) {
+    .trace li { grid-template-columns: 24px minmax(0, 1fr); }
+    .step-v, .step-why { grid-column: 2; }
+  }
+  .kept { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+  .kept-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+  .fuse-pick input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .kept-main { flex: 1; min-width: 0; display: grid; }
+  .kept-main b { font-family: var(--font-display); font-weight: 400; font-size: 18px; line-height: 1.1; }
+  .kept-main small { color: var(--tier); font-weight: 600; }
+  .kept-actions { display: flex; gap: 6px; }
+  .kept-actions button { padding: 5px 9px; font-size: 13px; }
+  .empty, .hint { color: var(--muted); font-size: 14px; }
+  .hint { margin-top: 10px; }
+  #fuse-btn { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  .count { font-family: var(--font-body); font-size: 14px; color: var(--muted); }
+  .page-foot { color: var(--muted); font-size: 13px; max-width: 72ch; }
+  .page-foot code { font-family: var(--font-mono); font-size: 12px; }
+</style>
+
+<div class="page">
+  <header class="masthead">
+    <p class="eyebrow">Procedural powers prototype</p>
+    <h1>Skill Forge</h1>
+    <p class="lede">Every power here was grown from a random seed. The forge picks a keystone effect, a shape that can carry it and a few extras, then spends a power budget on the numbers and names the result. None of it comes from a list of finished skills.</p>
+  </header>
+
+  <section class="controls" aria-label="Forge settings">
+    <div class="control-group">
+      <span class="control-label" id="tier-label">Tier</span>
+      <div class="segmented" id="tiers" role="group" aria-labelledby="tier-label"></div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Essences <small id="ess-note"></small></span>
+      <div class="ess-grid" id="essences" role="group" aria-label="Lock up to three essences"></div>
+    </div>
+    <div class="control-row">
+      <button id="forge-btn" class="primary" type="button">Forge 3 powers</button>
+      <form id="code-form" class="code-form">
+        <label for="code-input" class="sr">Power code</label>
+        <input id="code-input" name="code" placeholder="Paste a code, like KV.G.time" autocomplete="off" spellcheck="false">
+        <button type="submit">Load</button>
+      </form>
+    </div>
+    <p id="code-error" class="error" role="alert" hidden></p>
+    <div class="examples-row">
+      <span class="control-label">Found by the forge</span>
+      <div id="examples" class="examples"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="draft-title">
+    <div class="section-head">
+      <h2 id="draft-title">Level-up draft</h2>
+      <p>Evolve adds one mutation and a tier. Keep saves a power so you can fuse it.</p>
+    </div>
+    <div id="draft" class="draft"></div>
+  </section>
+
+  <div class="lower">
+    <section class="panel" id="trace" aria-labelledby="trace-h">
+      <div class="section-head"><h2 id="trace-h">How <span id="trace-title"></span> was grown</h2></div>
+      <ol id="trace-steps" class="trace"></ol>
+    </section>
+    <section class="panel" aria-labelledby="kept-h">
+      <div class="section-head"><h2 id="kept-h">Kept powers <span id="kept-count" class="count"></span></h2></div>
+      <ul id="kept" class="kept"></ul>
+      <button id="fuse-btn" type="button" disabled>Fuse selected</button>
+      <p class="hint">Fusion keeps the first power's shape. The second power goes off on impact, when the first one ends, or when it defeats someone.</p>
+    </section>
+  </div>
+
+  <footer class="page-foot">
+    <p>Codes rebuild the exact same power on any device: <code>SEED.TIER</code> for a forged power, a trailing <code>&gt;</code> for each evolution, and <code>(A)x(B)</code> for a fusion. Numbers assume fighters with 1000 HP.</p>
+  </footer>
+</div>
+
+<script type="module" src="app.js"></script>

@@ -1,0 +1,10 @@
+{
+  "name": "skill-forge",
+  "private": true,
+  "type": "module",
+  "description": "Prototype of the procedural power generator (grammar + power budget + naming).",
+  "scripts": {
+    "forge": "node cli.js",
+    "stats": "node cli.js --stats 20000"
+  }
+}
