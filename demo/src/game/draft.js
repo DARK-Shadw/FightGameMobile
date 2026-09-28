@@ -7,7 +7,7 @@ import { ESSENCES } from '../../../prototypes/skill-forge/data-essences.js';
 import { present } from '../../../prototypes/skill-forge/describe.js';
 
 export const DRAFT_CSS = `
-.draft { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); background: radial-gradient(ellipse at 50% 40%, rgba(60,30,110,.55), rgba(12,6,28,.88)); font-family: 'Lilita One', system-ui, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; overflow-y: auto; }
+.draft { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: max(12px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom)); background: radial-gradient(ellipse at 50% 45%, rgba(40,20,80,.6), rgba(12,6,28,.82)); font-family: 'Lilita One', system-ui, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; overflow-y: auto; }
 .draft .ol { text-shadow: 0 2px 0 #1a0f2e, 2px 0 0 #1a0f2e, -2px 0 0 #1a0f2e, 0 -2px 0 #1a0f2e, 2px 2px 0 #1a0f2e, -2px 2px 0 #1a0f2e, 2px -2px 0 #1a0f2e, -2px -2px 0 #1a0f2e, 0 4px 0 rgba(0,0,0,.35); }
 .draft h1 { margin: 0; font-weight: 400; font-size: clamp(26px, 5vw, 42px); text-align: center; line-height: 1.05; }
 .draft h2 { margin: -6px 0 0; font-weight: 400; font-size: clamp(14px, 2.4vw, 18px); opacity: .85; text-align: center; font-family: system-ui, sans-serif; }
@@ -21,7 +21,7 @@ export const DRAFT_CSS = `
 .card .back::after { content: '?'; position: absolute; font-size: clamp(40px, 7vw, 70px); color: #fff; text-shadow: 0 3px 0 #1a0f2e; }
 @keyframes pulse { 50% { transform: scale(1.08); } }
 .card .face { background: linear-gradient(180deg, color-mix(in srgb, var(--ec) 70%, #1a0f2e) 0%, #241640 38%, #1a0f2e 100%); display: flex; flex-direction: column; }
-.card.godly .face::before { content: ''; position: absolute; inset: -4px; border-radius: 18px; padding: 4px; background: conic-gradient(from var(--spin, 0deg), #ff3d6e, #ffc02e, #3fd06a, #3fa9ff, #b44bff, #ff3d6e); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: spin 2.2s linear infinite; }
+.card.godly .face { border-color: transparent; background: linear-gradient(180deg, color-mix(in srgb, var(--ec) 70%, #1a0f2e) 0%, #241640 38%, #1a0f2e 100%) padding-box, conic-gradient(from var(--spin, 0deg), #ff3d6e, #ffc02e, #3fd06a, #3fa9ff, #b44bff, #ff3d6e) border-box; animation: spin 2.2s linear infinite; box-shadow: 0 8px 0 rgba(0,0,0,.35), 0 0 26px 2px rgba(255,120,200,.45); }
 @property --spin { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes spin { to { --spin: 360deg; } }
 .card .rib { font-size: clamp(12px, 1.8vw, 16px); text-align: center; padding: 5px 0 6px; background: linear-gradient(var(--tc), color-mix(in srgb, var(--tc) 60%, #000)); border-bottom: 3px solid #1a0f2e; letter-spacing: 1px; }
@@ -48,6 +48,10 @@ export const DRAFT_CSS = `
 .stat .ic { font-size: 34px; line-height: 1; }
 .stat .v { font-size: 22px; margin-top: 6px; color: #ffe14a; }
 .stat .d { font-family: system-ui, sans-serif; font-size: 12px; opacity: .85; margin-top: 2px; }
+.draft.title { justify-content: space-between; background: linear-gradient(to bottom, rgba(26,12,52,.7), rgba(26,12,52,0) 34%, rgba(26,12,52,0) 72%, rgba(26,12,52,.6)); padding-block: max(4vh, 14px); }
+.draft.title h2 { max-width: 470px; font-family: system-ui, sans-serif; font-size: clamp(12px, 1.8vh, 15px); margin: 0; background: rgba(26,12,52,.6); border-radius: 12px; padding: 6px 14px; }
+.draft .vs { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%) rotate(-6deg); font-size: clamp(34px, 7vh, 64px); color: #ffe14a; pointer-events: none; }
+.draft.title .top { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .draft .btn { font-family: inherit; font-size: 22px; color: #fff; padding: 10px 34px 13px; border-radius: 14px; border: 4px solid #1a0f2e; background: linear-gradient(#ffd23f, #ff9a1a); box-shadow: 0 6px 0 rgba(0,0,0,.35), inset 0 -6px 0 rgba(0,0,0,.18); cursor: pointer; }
 @media (max-height: 520px) { .card { aspect-ratio: 0.9; } .card .emb { width: 26%; margin: 4% auto 2%; } .card .tx { font-size: 10.5px; } }
 @media (max-width: 640px) and (orientation: portrait) { .draft .row { flex-direction: column; align-items: center; } .card { width: min(88vw, 340px); max-width: none; flex: none; aspect-ratio: 1.45; } .card .face { display: grid; grid-template-columns: 34% 1fr; grid-template-rows: auto auto auto auto 1fr auto; } .card .rib, .card .ft { grid-column: 1 / -1; } .card .emb { grid-row: 2 / 6; width: 80%; margin: 12px auto; } .card .tx { grid-column: 2; } }
@@ -74,8 +78,8 @@ export const STATS = STAT_UPGRADES;
 export function cardHTML(s, kind = '') {
   const info = present(s);
   const tc = TIER_COLORS[s.tier], st = STYLE[s.essences[0]] || STYLE.fire;
-  const ess = s.essences.map(e => `<span style="--c:${ESSENCES[e]?.color ?? '#fff'}">${ESSENCES[e]?.name ?? e}</span>`).join('');
-  const trig = s.trigger !== 'cast' ? `<p style="color:#ffe14a">Passive: ${info.stats.trigger}</p>` : '';
+  const ess = s.essences.map(e => `<span style="--c:${ESSENCES[e]?.color ?? '#fff'}">${ESSENCES[e]?.name ?? e}</span>`).join('') + (s.trigger !== 'cast' ? '<span style="--c:#ffe14a">Passive</span>' : '');
+  const trig = '';
   return `
     ${kind ? `<div class="kind">${kind}</div>` : ''}
     <div class="in" style="--tc:${tc};--ec:${st.color};--eg:${st.glow}">
@@ -155,13 +159,19 @@ export function draftStats(root, title, options) {
   });
 }
 
-export function splash(root, html, btn = 'PLAY') {
+export function splash(root, html, btn = 'PLAY', cls = '', below = '') {
   return new Promise(resolve => {
     const el = document.createElement('div');
-    el.className = 'draft';
-    el.innerHTML = html + (btn ? `<button class="btn ol">${btn}</button>` : '');
+    el.className = 'draft ' + cls;
+    el.innerHTML = `<div class="top">${html}</div><div class="top">${below}${btn ? `<button class="btn ol" type="button">${btn}</button>` : ''}</div>`;
     root.appendChild(el);
-    const go = () => { el.remove(); resolve(); };
+    const go = () => {
+      // on phones, try for fullscreen landscape (optional: some browsers and app views refuse)
+      if (matchMedia('(pointer: coarse)').matches && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
+      }
+      el.remove(); resolve();
+    };
     if (btn) el.querySelector('.btn').addEventListener('click', go);
     else setTimeout(go, 1800);
   });

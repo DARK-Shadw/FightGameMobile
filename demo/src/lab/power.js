@@ -23,7 +23,8 @@ export async function setup(stage, params) {
   const t0 = performance.now();
   const arena = params.get('arena') === '0' ? flatArena(stage.scene) : await buildArena(stage.scene);
   await Game.preload();
-  const game = new Game(stage, arena, { spawns: [[[0, 0, 3]], [[0, 0, -2.2], [-2.4, 0, -3.2], [2.4, 0, -3.2], [0, 0, -5]]] });
+  const pz = Number(params.get('pz') ?? 3);
+  const game = new Game(stage, arena, { spawns: [[[0, 0, pz]], [[0, 0, -1.2], [-2.4, 0, -2.2], [2.4, 0, -2.2], [0, 0, -4]]] });
   const player = game.addBrawler({ hero: params.get('hero') || 'kai', team: 0, isPlayer: true, name: 'You' });
   const n = Number(params.get('n') ?? 3);
   const dummies = [];
@@ -31,6 +32,7 @@ export async function setup(stage, params) {
   const codes = (params.get('code') || 'K2.E.fire').split(',');
   const skills = codes.map(c => fromCode(c));
   const slots = skills.map(s => game.givePower(player, s));
+  await game.prebakeCreatures();
   player.aimDir.set(0, -1);
   game.world.focus = player;
   game.world.snapCamera();

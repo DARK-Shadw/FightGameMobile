@@ -263,9 +263,11 @@ function spawnBolt(ctx, node, origin, dir, p, mods, o = {}) {
   const speed = p.speed;
   const lingerT = { t: 0 };
   let delivered = false;
+  const near = new Set(); // enemies it grazed: a clean miss counts as their dodge
   const end = (at, withImpact = true) => {
     if (!alive) return;
     alive = false;
+    for (const f of near) if (!hit.has(f) && f.alive) f.passiveHook?.('onDodge');
     if (withImpact) fx.impact(ctx.ess, at, Math.max(0.6, size * 1.1), 0.35);
     if (!delivered && !o.shard && !ctx.basic) deliver({ ...ctx }, { ...node, chain: null }, [], [at[0], 0, at[2]], { landed: true, origin: at });
     if (mods.split && !o.shard) {
@@ -293,7 +295,8 @@ function spawnBolt(ctx, node, origin, dir, p, mods, o = {}) {
       const r = size * 0.5 + 0.35;
       for (const f of world.fighters) {
         if (!f.alive || f.team === caster.team || hit.has(f) || o.ignore?.has(f)) continue;
-        if (distToSeg(f.pos.x, f.pos.z, pos, next) > r + f.radius) continue;
+        const ds = distToSeg(f.pos.x, f.pos.z, pos, next);
+        if (ds > r + f.radius) { if (ds < r + f.radius + 0.9 && f.kind === 'brawler') near.add(f); continue; }
         hit.add(f);
         delivered = true;
         const res = deliver({ ...ctx, projectile: true, reflect: tgt => { d = norm(-d[0], -d[2]); ctx.reflected = true; hit.clear(); } }, node, [f], [f.pos.x, 0, f.pos.z], { dir: d, origin: pos, scale: o.shard ? 0.5 : 1, pullTo: [caster.pos.x, 0, caster.pos.z] });
@@ -473,7 +476,8 @@ function spawnDash(ctx, node, dir, p, mods) {
     dir, speed, dur, t: 0,
     onStep: dt => {
       ghostT += dt;
-      if (ghostT > 0.035) { ghostT = 0; fx.afterimage(caster, ctx.ess, 0.55); fx.motif(ctx.ess, 'trail', caster.center(), 0.6, 0, [dir[0] * 10, 0, dir[2] * 10]); }
+      if (ghostT > 0.06) { ghostT = 0; fx.afterimage(caster, ctx.ess, 0.55); fx.trailPuff?.(ctx.ess, caster.center(), 0.9, [dir[0] * 10, 0, dir[2] * 10]); }
+      fx.motif(ctx.ess, 'trail', caster.center(), 0.6, 0, [dir[0] * 10, 0, dir[2] * 10]);
       for (const f of world.fighters) {
         if (!f.alive || f.team === caster.team || hit.has(f)) continue;
         if (Math.hypot(f.pos.x - caster.pos.x, f.pos.z - caster.pos.z) < f.radius + caster.radius + 0.3) {

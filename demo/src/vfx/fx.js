@@ -9,7 +9,7 @@ import * as L from './fxlib.js';
 import { STYLE, hexToRgb } from './styles.js';
 import { getAtlas, ATLAS_GRID, spriteIndex } from './atlas.js';
 import { toonMaterial } from '../engine/toon.js';
-import { meshSDF } from '../engine/mesher.js';
+import { meshSDF } from '../art/creature-mesher.js';
 import { geometryFrom } from '../engine/rig.js';
 import { S, P } from '../engine/sdf.js';
 
@@ -277,7 +277,7 @@ export class FX {
           this.motif(ess, 'trail', pos, size, 0, vel);
         }
         puffT += dt;
-        if (puffT > 0.03) { puffT = 0; this.trailPuff(ess, pos, size, vel); }
+        if (puffT > 0.03 && o.puffs !== false) { puffT = 0; this.trailPuff(ess, pos, size, vel); }
       },
       stop: () => {
         alive = false;
@@ -289,29 +289,35 @@ export class FX {
     return self;
   }
 
-  // Afterimages: frozen translucent copies of a skinned character.
+  // Afterimages: frozen translucent copies of a skinned character. The copy
+  // shares the geometry and keeps a snapshot of the bone matrices, which
+  // already include the brawler's transform, so the mesh itself stays at
+  // the origin.
   afterimage(fighter, ess, alpha = 0.6) {
     const src = fighter.model?.body;
-    if (!src || !src.skeleton) return;
+    if (!src || !src.skeleton || !fighter.model.group.visible) return;
     const st = this.style(ess);
-    const bones = src.skeleton.bones.map(b => { const c = new THREE.Bone(); c.matrixAutoUpdate = false; c.matrixWorld.copy(b.matrixWorld); return c; });
+    const bones = src.skeleton.bones.map(b => { const c = new THREE.Bone(); c.matrixAutoUpdate = false; c.matrixWorldAutoUpdate = false; c.matrixWorld.copy(b.matrixWorld); return c; });
     const skel = new THREE.Skeleton(bones, src.skeleton.boneInverses);
-    const mat = L.energyMaterial({ color: st.color, core: st.core, edge: st.edge, mode: 1, fresnel: 0.9, intensity: 1.8, erode: 0.6, noise: 2 });
+    const mat = toonMaterial({ transparent: true, rim: 1.4, emissive: 2 });
+    const u = mat.userData.u;
+    // a solid, glowing essence-colored silhouette that fades out
+    u.uTint.value.set(st.color);
+    u.uTintAmount.value = 0.5;
+    u.uFlashColor.value.set(st.color).multiplyScalar(1.6);
+    u.uFlash.value = 0.62;
+    u.uGhost.value = 0.12;
+    mat.depthWrite = false;
     const ghost = new THREE.SkinnedMesh(src.geometry, mat);
     ghost.bind(skel, src.bindMatrix);
-    ghost.bindMode = THREE.DetachedBindMode;
     ghost.matrixAutoUpdate = false;
-    ghost.matrixWorld.copy(src.matrixWorld);
     ghost.frustumCulled = false;
-    skel.update = function () { THREE.Skeleton.prototype.update.call(this); };
+    ghost.renderOrder = 8;
     this.scene.add(ghost);
-    ghost.updateMatrixWorld = () => {};
     const e = { t: 0, update: dt => {
       e.t += dt;
-      const k = e.t / 0.35;
-      mat.uniforms.uLife.value = k;
-      mat.uniforms.uOpacity.value = (1 - k) * alpha;
-      mat.uniforms.uTime.value += dt;
+      const k = e.t / 0.34;
+      mat.opacity = Math.min(1, (1 - k) * alpha * 1.5);
       if (k >= 1) { ghost.removeFromParent(); mat.dispose(); return false; }
       return true;
     } };

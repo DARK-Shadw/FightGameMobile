@@ -227,19 +227,16 @@ export const G = (color, emi = 1, gloss = 0.5) => P(color, gloss, emi);
 
 // ── Parts ────────────────────────────────────────────────────────────────
 // Row of claws: `base` knuckle position, pointing along `dir` then curling down.
-export function claws(base, dir, side, n, spread, len, r, paint) {
+export function claws(base, dir, n, spread, len, r, paint) {
   const d = norm(dir);
+  const px = -d[2], pz = d[0];
   const out = [];
   for (let i = 0; i < n; i++) {
     const o = (i - (n - 1) / 2) * spread;
-    const b0 = [base[0] + o * side * (d[2] !== 0 ? 1 : 0) + (d[2] === 0 ? 0 : 0), base[1], base[2]];
-    // spread across the axis perpendicular to dir in the horizontal plane
-    const px = -d[2], pz = d[0];
     const b = [base[0] + px * o, base[1], base[2] + pz * o];
     const tip = [b[0] + d[0] * len, b[1] + d[1] * len - len * 0.35, b[2] + d[2] * len];
     const mid = [b[0] + d[0] * len * 0.6, b[1] + d[1] * len * 0.6 + len * 0.1, b[2] + d[2] * len * 0.6];
     out.push(tube(b, mid, tip, r, r * 0.15, 2));
-    void b0;
   }
   return S.union(0, ...out).paint(paint);
 }

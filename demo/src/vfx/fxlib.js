@@ -207,20 +207,22 @@ export function circle(scene, o) {
   if (o.rot) mesh.rotation.set(...o.rot);
   mesh.renderOrder = 15;
   scene.add(mesh);
-  const R = o.radius ?? 1.5;
-  return new Effect(mesh, o.dur ?? 1, k => {
-    const grow = o.grow === false ? 1 : easeOut3(Math.min(1, k * 4));
-    mesh.scale.setScalar(R * grow);
+  const e = new Effect(mesh, o.dur ?? 1, (k, dt, self) => {
+    // grow in over the first quarter of a timed circle, or the first 0.25 s of a persistent one
+    const grow = o.grow === false ? 1 : easeOut3(Math.min(1, self.dur > 0 ? k * 4 : self.t * 4));
+    mesh.scale.setScalar(self.R * grow);
     const fade = o.dur ? Math.min(1, (1 - k) * 5) : 1;
     mesh.material.uniforms.uOpacity.value = fade * (o.opacity ?? 1);
     if (o.follow) { const p = o.follow(); if (p) mesh.position.set(p[0], (o.y ?? 0.06), p[2]); }
   });
+  e.R = o.radius ?? 1.5;
+  return e;
 }
 
 // ── Beam between two points (updated each frame by the owner) ──
 export function beam(scene, o) {
   const group = new THREE.Group();
-  const outer = new THREE.Mesh(cylGeo(), energyMaterial({ color: o.color, core: o.core, edge: o.edge, mode: 2, fresnel: 0.3, intensity: o.intensity ?? 2.2, erode: 0.2, noise: 1.3, scroll: [0, -4], soft: 0.04 }));
+  const outer = new THREE.Mesh(cylGeo(), energyMaterial({ color: o.color, core: o.core, edge: o.edge, mode: 2, fresnel: 0.3, intensity: o.intensity ?? 2.2, erode: 0.2, noise: 1.3, scroll: [0, -4], soft: 0.04, blending: o.blending }));
   const inner = new THREE.Mesh(cylGeo(), energyMaterial({ color: o.core ?? '#ffffff', core: '#ffffff', mode: 2, fresnel: 0.1, intensity: 3, erode: 0, noise: 2, scroll: [0, -7], soft: 0.04 }));
   inner.scale.set(0.35, 1, 0.35);
   group.add(outer, inner);

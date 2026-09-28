@@ -50,7 +50,7 @@ function creatureModel(role, ess) {
 
 // A copy of a brawler's model (cached geometry: cheap) with an essence look.
 function heroCopy(heroId, ess, o = {}) {
-  const m = buildHero(heroId);
+  const m = buildHero(heroId, { cell: 0.019 });
   const st = STYLE[ess] || STYLE.fire;
   m.group.traverse(x => {
     const u = x.material?.userData?.u;
@@ -263,6 +263,9 @@ export function transformInto(game, who, ess, dur, bonus) {
     form.model = cm;
     who.model.group.visible = false;
     who.group.add(cm.model.group);
+    form.extraLooks = [];
+    cm.model.group.traverse(m => { const u = m.material?.userData?.u; if (u) form.extraLooks.push(u); });
+    who.looks.push(...form.extraLooks);
   } else {
     who.model.group.scale.setScalar(1.3);
     who.setLook('uTint', st.color);
@@ -298,10 +301,45 @@ export function endForm(game, who, quiet = false) {
   who.maxHp -= form.hpBoost;
   who.hp = Math.min(who.hp, who.maxHp);
   who.buffs.dmg /= 1 + form.bonus / 100;
-  if (form.model) { form.model.model.group.removeFromParent(); who.model.group.visible = true; }
+  if (form.model) {
+    form.model.model.group.removeFromParent();
+    who.model.group.visible = true;
+    who.looks = who.looks.filter(u => !form.extraLooks.includes(u));
+  }
   who.model.group.scale.setScalar(1);
   who.setLook('uTintAmount', 0);
   if (!quiet) { game.world.fx.puffs(form.ess, [who.pos.x, 0.3, who.pos.z], 10, 1, { alpha: 0.6 }); game.world.fx.selfBurst?.(form.ess, who, 0.8); }
+}
+
+// Creatures a power will need (baked ahead so the first summon doesn't hitch).
+export function creatureJobs(dna) {
+  const out = [];
+  const visit = (atoms, ess) => {
+    for (const a of atoms || []) {
+      if (a.id === 'summon') out.push(['minion', ess]);
+      if (a.id === 'raise') out.push(['minion', 'death']);
+      if (a.id === 'titan') out.push(['titan', ess]);
+      if (a.id === 'transform') out.push(['form', ess]);
+      if (a.id === 'hex') out.push(['critter', ess]);
+    }
+  };
+  visit(dna.root.atoms, dna.essences[0]);
+  if (dna.root.chain) visit(dna.root.chain.atoms, dna.essences[1] || dna.essences[0]);
+  return out;
+}
+const baked = new Set();
+export async function prebake(dnas, onStep = null) {
+  if (!creatures) return;
+  const jobs = [];
+  for (const d of dnas) for (const j of creatureJobs(d)) {
+    const key = j.join(':');
+    if (!baked.has(key) && hasCreature(j[0], j[1])) { baked.add(key); jobs.push(j); }
+  }
+  for (let i = 0; i < jobs.length; i++) {
+    onStep?.(i, jobs.length, jobs[i]);
+    await new Promise(r => setTimeout(r, 0));
+    try { creatures.bakeCreature(jobs[i][0], jobs[i][1]); } catch (e) { console.warn('bake', jobs[i], e); }
+  }
 }
 
 export function makeCritter(ess) {

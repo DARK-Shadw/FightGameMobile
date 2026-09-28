@@ -136,7 +136,7 @@ export class Stage {
     sun.castShadow = true;
     sun.shadow.mapSize.set(opts.shadowSize ?? 2048, opts.shadowSize ?? 2048);
     const sc = sun.shadow.camera;
-    sc.left = -16; sc.right = 16; sc.top = 16; sc.bottom = -16; sc.near = 1; sc.far = 50;
+    sc.left = -13; sc.right = 13; sc.top = 13; sc.bottom = -13; sc.near = 1; sc.far = 50;
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.02;
     sun.shadow.radius = 3;
@@ -149,7 +149,9 @@ export class Stage {
     const size = new THREE.Vector2(1, 1);
     const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: opts.msaa ?? 4 });
     const composer = new EffectComposer(renderer, rt);
-    composer.addPass(new RenderPass(scene, camera));
+    this.renderPass = new RenderPass(scene, camera);
+    composer.addPass(this.renderPass);
+    this.renderer.info.autoReset = false; // count every pass of a frame
     this.bloom = new UnrealBloomPass(size, opts.bloomStrength ?? 0.42, 0.35, 1.2);
     composer.addPass(this.bloom);
     this.final = new ShaderPass(FinalShader);
@@ -157,6 +159,19 @@ export class Stage {
     this.composer = composer;
     this.fx = this.final.uniforms;
     this.time = 0;
+    this.resize();
+  }
+
+  // 0 full, 1 lighter resolution, 2 smaller shadows and MSAA, 3 no bloom, no MSAA
+  setQuality(level) {
+    this.quality = level;
+    const base = Math.min(window.devicePixelRatio || 1, this.opts.maxPixelRatio ?? 2);
+    this.renderer.setPixelRatio([base, Math.min(base, 1.3), Math.min(base, 1), Math.min(base, 0.8)][level]);
+    const sm = level >= 2 ? 1024 : (this.opts.shadowSize ?? 2048);
+    if (this.sun.shadow.mapSize.x !== sm) { this.sun.shadow.mapSize.set(sm, sm); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
+    const samples = [4, 4, 2, 0][level];
+    for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) if (rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
+    this.bloom.enabled = level < 3;
     this.resize();
   }
 
@@ -174,6 +189,9 @@ export class Stage {
     this.fx.uAspect.value = w / h;
   }
 
+  // Render a different scene/camera (menus) through the same post chain.
+  setView(scene, camera) { this.renderPass.scene = scene; this.renderPass.camera = camera; }
+
   // Keep the shadow frustum centered on what the camera looks at.
   followShadow(target) {
     const s = this.sun;
@@ -185,6 +203,7 @@ export class Stage {
     this.time += dt;
     SHARED.uTime.value = this.time;
     this.fx.uTime.value = this.time;
+    this.renderer.info.reset();
     this.composer.render(dt);
   }
 }

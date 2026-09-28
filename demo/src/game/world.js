@@ -137,7 +137,9 @@ export class World {
     this.camLook.lerp(this.camTarget, Math.min(1, dt * 5));
     const s = this.fx.shakeOffset(this.time);
     this.camZoom += (this.camZoomT - this.camZoom) * Math.min(1, dt * 4);
-    this.camera.position.copy(this.camLook).addScaledVector(this.camOffset, this.camZoom).add(new THREE.Vector3(s[0], s[1], s[2]));
+    // narrow screens (portrait phones) pull the camera back so the arena still fits sideways
+    const fit = Math.max(1, Math.min(1.9, 1.45 / this.camera.aspect));
+    this.camera.position.copy(this.camLook).addScaledVector(this.camOffset, this.camZoom * fit).add(new THREE.Vector3(s[0], s[1], s[2]));
     this.camera.lookAt(this.camLook.x + s[0] * 0.3, 0, this.camLook.z + s[2] * 0.3);
     this.stage.followShadow(new THREE.Vector3(this.camLook.x, 0, this.camLook.z - 1));
   }

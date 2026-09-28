@@ -3,7 +3,7 @@
 // instanced sculpted props, swaying bushes, grass and flowers.
 
 import * as THREE from 'three';
-import { meshSDF } from '../engine/mesher.js';
+import { meshSDF } from '../art/creature-mesher.js';
 import { geometryFrom } from '../engine/rig.js';
 import { toonMaterial, outlineMaterial, SHARED } from '../engine/toon.js';
 import { stoneBlock, crate, barrel, runestone, bush, rock, tree, fence, mushroom } from '../art/props.js';
@@ -141,18 +141,34 @@ function propGeometry(sdf, cell) {
   return geometryFrom(meshSDF(sdf, { cell, aoStep: cell * 1.6, aoStrength: 1.1 }));
 }
 
+// Instanced props, split into spatial chunks so the camera and the shadow
+// map can cull what is off screen.
+const CHUNK = 8.5;
 function instanced(geo, matrices, opts = {}) {
   const mat = opts.material || toonMaterial({ rim: opts.rim ?? 0.35, hooks: opts.hooks });
-  const mesh = new THREE.InstancedMesh(geo, mat, matrices.length);
-  matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
-  mesh.castShadow = opts.castShadow ?? true;
-  mesh.receiveShadow = true;
+  const olMat = opts.outline !== false ? outlineMaterial({ width: opts.outlineWidth ?? 0.0016 }) : null;
+  const chunks = new Map();
+  const p = new THREE.Vector3();
+  for (const m of matrices) {
+    p.setFromMatrixPosition(m);
+    const key = `${Math.floor(p.x / CHUNK)},${Math.floor(p.z / CHUNK)}`;
+    if (!chunks.has(key)) chunks.set(key, []);
+    chunks.get(key).push(m);
+  }
   const group = new THREE.Group();
-  group.add(mesh);
-  if (opts.outline !== false) {
-    const ol = new THREE.InstancedMesh(geo, outlineMaterial({ width: opts.outlineWidth ?? 0.0016 }), matrices.length);
-    matrices.forEach((m, i) => ol.setMatrixAt(i, m));
-    group.add(ol);
+  for (const list of chunks.values()) {
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((m, i) => mesh.setMatrixAt(i, m));
+    mesh.castShadow = opts.castShadow ?? true;
+    mesh.receiveShadow = true;
+    mesh.computeBoundingSphere();
+    group.add(mesh);
+    if (olMat) {
+      const ol = new THREE.InstancedMesh(geo, olMat, list.length);
+      list.forEach((m, i) => ol.setMatrixAt(i, m));
+      ol.computeBoundingSphere();
+      group.add(ol);
+    }
   }
   return group;
 }
@@ -264,19 +280,19 @@ export async function buildArena(scene, onProgress = () => {}) {
   arena.ground = ground;
 
   onProgress('Carving stone'); await yieldUI();
-  const blockGeos = [0, 1, 2].map(s => propGeometry(stoneBlock(s + 1), 0.035));
+  const blockGeos = [0, 1, 2].map(s => propGeometry(stoneBlock(s + 1), 0.05));
   onProgress('Building crates'); await yieldUI();
-  const crateGeo = propGeometry(crate(1), 0.03);
-  const barrelGeo = propGeometry(barrel(), 0.028);
+  const crateGeo = propGeometry(crate(1), 0.045);
+  const barrelGeo = propGeometry(barrel(), 0.04);
   onProgress('Engraving runes'); await yieldUI();
-  const runeGeo = propGeometry(runestone(2), 0.03);
+  const runeGeo = propGeometry(runestone(2), 0.042);
   onProgress('Growing bushes'); await yieldUI();
-  const bushGeos = [0, 1].map(s => propGeometry(bush(s + 3, 1.05), 0.04));
+  const bushGeos = [0, 1].map(s => propGeometry(bush(s + 3, 1.05), 0.058));
   onProgress('Placing rocks and trees'); await yieldUI();
-  const rockGeos = [0, 1].map(s => propGeometry(rock(s + 5, 1), 0.04));
-  const treeGeos = [0, 1].map(s => propGeometry(tree(s + 9, 1.2), 0.075));
-  const fenceGeo = propGeometry(fence(), 0.028);
-  const mushGeo = propGeometry(mushroom(3), 0.02);
+  const rockGeos = [0, 1].map(s => propGeometry(rock(s + 5, 1), 0.07));
+  const treeGeos = [0, 1].map(s => propGeometry(tree(s + 9, 1.2), 0.13));
+  const fenceGeo = propGeometry(fence(), 0.05);
+  const mushGeo = propGeometry(mushroom(3), 0.03);
 
   const blocks = [[], [], []], crates = [], barrels = [], runes = [], bushes = [[], []];
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {

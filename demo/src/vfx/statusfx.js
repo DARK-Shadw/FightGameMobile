@@ -97,7 +97,7 @@ class StatusRig {
     let grey = 0, ghost = 0, tint = null, amt = 0;
     const now = f.world.time;
     if (s.timestop) grey = 1; else if (s.clockSlow) grey = 0.4;
-    if (s.invis) ghost = f.team === playerTeam ? 0.72 : 1;
+    if (s.invis) ghost = f.team === playerTeam ? 0.5 : 1;
     if (s.hex && !this.critter) { tint = '#8cff5a'; amt = 0.45; }
     else if (s.fear) { tint = '#6a2aa8'; amt = 0.38 + 0.08 * Math.sin(now * 22); }
     else if (s.control) { tint = STYLE.mind.color; amt = 0.32 + 0.08 * Math.sin(now * 6); }
@@ -259,7 +259,7 @@ const VIS = {
     return {
       update(dt, s) {
         const left = s && s.dur ? Math.max(0, 1 - s.t / s.dur) : 1;
-        reticle.obj.scale.setScalar(0.55 + left * 0.9);
+        reticle.R = 0.55 + left * 0.9;
         reticle.obj.visible = f.group.visible;
       },
       kill() { reticle.kill(); },
@@ -498,7 +498,7 @@ const VIS = {
     let critter = null;
     try { critter = fx.makeCritter?.(ess); } catch (e) { console.warn('critter', e); }
     let t = 0;
-    if (critter) { f.group.add(critter.group); r.critter = critter; }
+    if (critter) { critter.group.scale.setScalar(1.6); f.group.add(critter.group); r.critter = critter; }
     else f.model.group.scale.setScalar(0.55);
     r.icon('hex', 'swirl', '#b8ff8a', { size: 0.3 });
     return {

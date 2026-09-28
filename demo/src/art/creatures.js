@@ -1,8 +1,18 @@
 // Creature library: minions, titans, forms (caster transformations) and
 // critters (polymorph) for all 16 essences.
 //
-//   buildCreature(role, essenceId, opts) → { group, height, radius, role, essence, name, update(dt, state) }
-//   state = { speed: 0..1, action: null | { kind: 'attack'|'spawn'|'hit'|'death', t, dur }, time }
+//   buildCreature(role, essenceId, opts) → {
+//     group,            THREE.Group, creature standing at the origin facing +Z
+//     height, radius,   meters (for HP bars, hit circles, camera framing)
+//     role, essence, name,
+//     update(dt, state) state = { speed: 0..1, action: null | { kind: 'attack'|'spawn'|'hit'|'death', t, dur }, time }
+//                       the caller advances action.t; a 'death' ends fully dissolved at t = dur (then remove it)
+//     dispose()         frees this instance's materials (geometry stays cached)
+//     stats             { verts, tris, ms, cell } of the cached bake
+//   }
+//   opts: { cell (override mesh resolution), seed (0..1, desyncs idle motion) }
+//   bakeCreature(role, essenceId) pre-bakes into the cache (e.g. on a loading screen).
+//   CREATURE_ROLES[role][essenceId] → display name.
 //
 // A handful of archetype generators (imp, spirit, quadruped, bird, dragon,
 // serpent, giant, kraken, critters) are dressed per essence. Meshes are baked
@@ -192,6 +202,20 @@ export function bakeCreature(role, essence, opts = {}) {
   return tpl;
 }
 
+// Drops every cached bake and frees its geometry (live instances must be gone).
+export function clearCreatureCache() {
+  for (const tpl of CACHE.values()) {
+    tpl.geo.dispose();
+    tpl.parts.forEach(p => p.geo.dispose());
+    tpl.props.forEach(p => p.geo.dispose());
+    tpl.face?.parts.forEach(p => p.geo.dispose());
+  }
+  CACHE.clear();
+}
+
+// Which archetype generator dresses each creature: role → essence → archetype.
+export const CREATURE_ARCHETYPES = Object.fromEntries(Object.entries(REG).map(([role, m]) => [role, Object.fromEntries(Object.entries(m).map(([e, r]) => [e, r[0]]))]));
+
 // A fresh face-decal material (same shader as buildFace) without re-projecting.
 function faceMaterial(feature) {
   const f = buildFace(TRIVIAL, new THREE.Object3D(), [0, 0, 0], [{ ...feature, center: [0, 0, 1], dir: [0, 0, 1], res: 1 }]);
@@ -282,6 +306,10 @@ export function buildCreature(role, essence, opts = {}) {
   const anim = new CreatureAnimator(inst, tpl.A, opts.seed ?? (SERIAL++ * 0.618) % 1);
   inst.anim = anim;
   inst.update = (dt, state = {}) => anim.update(dt, state);
+  inst.dispose = () => {
+    group.removeFromParent();
+    for (const m of [...mats, ...outs, ...face.mats]) m.dispose();
+  };
   inst.update(0, { speed: 0, action: null });
   return inst;
 }

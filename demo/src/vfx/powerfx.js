@@ -214,7 +214,7 @@ Object.assign(FX.prototype, {
       const c = follow ? follow() : pos;
       const g = o.grow ? o.grow() : 1;
       if (c) { pos[0] = c[0]; pos[2] = c[2]; }
-      circle.obj.scale.setScalar(radius * g);
+      circle.R = radius * g;
       fill.obj.scale.setScalar(radius * 1.05 * g);
       acc += dt * (4 + area * 2.2);
       while (acc > 1) {
@@ -238,7 +238,7 @@ Object.assign(FX.prototype, {
       }
       if (st.motif === 'shard' && strike > 0.3) {
         strike = 0;
-        this.puffs(ess, [pos[0] + R(-radius, radius) * 0.6, 0.1, pos[2] + R(-radius, radius) * 0.6], 1, radius * 0.4, { color: '#e8fbff', alpha: 0.35, up: 0.3 });
+        this.puffs(ess, [pos[0] + R(-radius, radius) * 0.6, 0.1, pos[2] + R(-radius, radius) * 0.6], 1, radius * 0.4, { color: '#e8fbff', alpha: 0.35, up: 0.3, noCloud: true });
       }
       if (st.motif === 'stars' && strike > 0.05) {
         strike = 0;
@@ -262,22 +262,51 @@ Object.assign(FX.prototype, {
 
   beamVisual(ess, ends, radius, dur) {
     const st = this.style(ess);
-    const b = this.push(L.beam(this.scene, { ends, color: st.color, core: st.core, edge: st.edge, radius, intensity: st.dark ? 1.3 : 2 }));
-    return live(this, dur, () => {
+    const pf = PUFF[ess] || PUFF.fire;
+    const R0 = Math.max(0.3, radius * 1.4);
+    // solid colored body (reads on bright ground) with a white-hot additive core
+    const b = this.push(L.beam(this.scene, { ends, color: st.color, core: st.glow, edge: st.edge, radius: R0, intensity: st.dark ? 1.2 : 1.5, blending: 'normal' }));
+    const core = this.push(L.beam(this.scene, { ends, color: st.core, core: '#ffffff', radius: R0 * 0.45, intensity: 2.4 }));
+    let acc = 0, ring = 0;
+    return live(this, dur, (dt) => {
       const [a, c] = ends();
-      this.sparks(ess, c, 2, 4, { life: 0.6 });
-      if (Math.random() < 0.5) this.motif(ess, 'trail', [a[0] + (c[0] - a[0]) * Math.random(), a[1], a[2] + (c[2] - a[2]) * Math.random()], 0.5, 0, [a[0] - c[0], 0, a[2] - c[2]]);
-      this.add.spawn({ pos: [...c], vel: [0, 0, 0], life: 0.12, size: [radius * 5, radius * 3], color: { from: [...hexToRgb(st.core, 2.2), 0.8], to: [...hexToRgb(st.color, 2), 0] }, sprite: 'glow' });
+      acc += dt; ring += dt;
+      if (acc > 0.05) {
+        acc = 0;
+        // splash where it hits and a glow in the hand
+        this.cloud.spawn({ pos: [c[0], Math.max(0.3, c[1]), c[2]], vel: [R(-2, 2), R(0.5, 2), R(-2, 2)], life: R(0.25, 0.4), size: [0.15, R(0.3, 0.45)], colors: pf.burst, hot: pf.hot, drag: 4, cut: 0.3 });
+        this.sparks(ess, c, 2, 5, { life: 0.6 });
+        this.add.spawn({ pos: [...a], vel: [0, 0, 0], life: 0.1, size: [R0 * 3, R0 * 3.6], color: { from: [...hexToRgb(st.core, 2.6), 0.9], to: [...hexToRgb(st.color, 2), 0] }, sprite: 'burst', rot: Math.random() * 6 });
+      }
+      if (ring > 0.22) { ring = 0; this.push(L.ring(this.scene, { pos: [c[0], 0, c[2]], color: st.color, core: st.glow, radius: 1.1, dur: 0.3, width: 0.15, blending: 'normal' })); }
+      if (Math.random() < 0.6) this.motif(ess, 'trail', [a[0] + (c[0] - a[0]) * Math.random(), a[1], a[2] + (c[2] - a[2]) * Math.random()], 0.5, 0, [a[0] - c[0], 0, a[2] - c[2]]);
+      this.add.spawn({ pos: [...c], vel: [0, 0, 0], life: 0.12, size: [R0 * 4, R0 * 3], color: { from: [...hexToRgb(st.core, 2.2), 0.8], to: [...hexToRgb(st.color, 2), 0] }, sprite: 'glow' });
       this.shake(0.12);
-    }, () => b.kill());
+    }, () => { b.kill(); core.kill(); });
   },
 
   dashStart(ess, f, dir) {
+    const st = this.style(ess);
     this.puffs(ess, [f.pos.x, 0.1, f.pos.z], 6, 0.6, { color: '#e8dcc0', alpha: 0.5, up: 0.4 });
-    this.push(L.ring(this.scene, { pos: [f.pos.x, 0, f.pos.z], color: this.style(ess).color, core: '#ffffff', radius: 1.1, dur: 0.3 }));
+    this.push(L.ring(this.scene, { pos: [f.pos.x, 0, f.pos.z], color: st.color, core: '#ffffff', radius: 1.2, dur: 0.3, blending: 'normal', width: 0.2 }));
+    this.flashAt(ess, f.center(), 1.1, 0.1);
+    // a wide essence streak that follows the dasher, and an afterimage right away
+    let alive = true;
+    const head = () => (alive && f.alive ? [f.pos.x, (f.y || 0) + 0.7, f.pos.z] : null);
+    const tr = this.push(L.trail(this.scene, { color: st.color, core: st.glow, edge: st.edge, width: 1.1, points: 14, camera: this.camera, head, intensity: st.dark ? 1 : 1.5, blending: 'normal' }));
+    f._dashTrail = { stop: () => { alive = false; tr.stop?.(); } };
+    this.afterimage(f, ess, 0.7);
   },
-  dashEnd(ess, f) { this.puffs(ess, [f.pos.x, 0.1, f.pos.z], 5, 0.5, { color: '#e8dcc0', alpha: 0.45, up: 0.4 }); },
-  slamCracks(ess, at, r) { this.puffs(ess, [at[0], 0.05, at[2]], 10, r, { color: '#d8c8a8', alpha: 0.55, up: 0.5, size: 1.2 }); },
+  dashEnd(ess, f) {
+    this.puffs(ess, [f.pos.x, 0.1, f.pos.z], 5, 0.5, { color: '#e8dcc0', alpha: 0.45, up: 0.4 });
+    this.clouds(ess, [f.pos.x, 0.5, f.pos.z], 4, 0.7);
+    f._dashTrail?.stop();
+    f._dashTrail = null;
+  },
+  slamCracks(ess, at, r) {
+    this.puffs(ess, [at[0], 0.05, at[2]], 10, r, { color: '#d8c8a8', alpha: 0.55, up: 0.5, size: 1.2 });
+    this.push(L.ring(this.scene, { pos: at, color: '#8a7058', core: '#d8c8a8', radius: r * 1.2, dur: 0.5, width: 0.3, blending: 'normal', intensity: 1 }));
+  },
 
   trapVisual(ess, at, r) {
     const st = this.style(ess);
@@ -352,8 +381,8 @@ Object.assign(FX.prototype, {
     }
     if (st.motif === 'ray') { setTimeoutFx(this, Math.max(0, delay - 0.15), () => this.push(L.pillar(this.scene, { pos: at, color: st.color, core: st.core, radius: r * 0.7, height: 14, dur: 0.6 }))); return; }
     // a falling core (meteor, glacier, boulder, star...) streaking in from the sky
-    const from = [at[0] - 2.5, 13, at[2] - 3];
-    const vis = this.projectile(ess, 0.9 + r * 0.25);
+    const from = [at[0] - 3.5, 13, at[2] - 4.5];
+    const vis = this.projectile(ess, 1.1 + r * 0.3, { puffs: false });
     live(this, delay, (dt, e) => {
       const k = Math.min(1, e.t / delay);
       const kk = k * k;

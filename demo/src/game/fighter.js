@@ -64,8 +64,13 @@ export class Fighter {
     this.essence = o.essence || 'time';
     // every material that makes up the brawler (body + face decals) for flash, tint, ghost...
     this.lookMats = [];
-    this.model.group.traverse(m => { if (m.material?.userData?.u?.uFlash) this.lookMats.push(m.material); });
-    this.looks = this.lookMats.map(m => m.userData.u);
+    this.looks = [];
+    this.model.group.traverse(m => {
+      const u = m.material?.userData?.u;
+      if (!u) return;
+      this.looks.push(u);                      // body, face decals and outline (dissolve)
+      if (u.uFlash) this.lookMats.push(m.material);
+    });
     this.flashV = 0;
     this.update(0);
   }
@@ -98,6 +103,16 @@ export class Fighter {
     this.world.fx.status?.start(this, name, st);
     return st;
   }
+  // Drop every status without running end effects (round resets, respawns).
+  clearStatuses() {
+    if (this.statuses.form) this.removeStatus('form');
+    for (const [name, st] of Object.entries(this.statuses)) {
+      delete this.statuses[name];
+      this.world.fx.status?.end(this, name, st);
+    }
+    this.shieldHp = 0;
+  }
+
   removeStatus(name) {
     const st = this.statuses[name];
     if (!st) return;

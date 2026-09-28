@@ -59,6 +59,15 @@ export const HUD_CSS = `
 #hud .respawn.on { display: grid; }
 #hud .respawn div { font-size: 30px; text-align: center; }
 #hud .lowhp { position: absolute; inset: 0; box-shadow: inset 0 0 90px 30px rgba(255,20,50,.55); opacity: 0; transition: opacity .3s; }
+#hud.menu .ovs, #hud.menu .nums, #hud.menu .score, #hud.menu .controls, #hud.menu .feed, #hud.menu .rotate { display: none; }
+#hud .mute { position: absolute; left: max(12px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); width: 40px; height: 40px; border-radius: 12px; border: 3px solid #1a0f2e; background: linear-gradient(#5a4a9a, #342868); box-shadow: 0 4px 0 rgba(0,0,0,.35); pointer-events: auto; cursor: pointer; display: grid; place-items: center; padding: 0; }
+#hud .mute svg { width: 22px; height: 22px; }
+#hud .mute:focus-visible { outline: 3px solid #ffe14a; outline-offset: 2px; }
+#hud .mute .x { display: none; }
+#hud .mute.off .x { display: inline; }
+#hud .mute.off .w { display: none; }
+#hud .rotate { position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 58px); transform: translateX(-50%); display: none; background: rgba(26,15,46,.78); border-radius: 10px; padding: 5px 12px; font-size: 13px; white-space: nowrap; }
+@media (orientation: portrait) and (pointer: coarse) { #hud .rotate { display: block; } #hud .btns { transform: scale(.82); transform-origin: 100% 100%; } }
 #hud .toast { position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%); font-size: 20px; opacity: 0; transition: opacity .2s; white-space: nowrap; }
 
 /* controls */
@@ -85,6 +94,12 @@ export const HUD_CSS = `
 #hud .pbtn.godly { border-color: transparent; background: conic-gradient(from var(--a, 0deg), #ff3d6e, #ffc02e, #3fd06a, #3fa9ff, #b44bff, #ff3d6e) border-box; }
 @keyframes readyPulse { 50% { box-shadow: 0 5px 0 rgba(0,0,0,.35), 0 0 0 2px #1a0f2e, 0 0 18px 4px var(--glow, #fff); } }
 #hud .held { transform: scale(.93); }
+#hud .passive { position: absolute; width: 50px; height: 50px; border-radius: 50%; border: 3px solid var(--tier, #a9bccf); background: #1a0f2e; box-shadow: 0 4px 0 rgba(0,0,0,.35), 0 0 0 2px #1a0f2e; overflow: hidden; pointer-events: auto; }
+#hud .passive canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#hud .passive .cd { position: absolute; inset: 0; background: conic-gradient(rgba(10,5,20,.72) calc(var(--p, 0) * 1%), transparent 0); }
+#hud .passive b { position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); font-size: 10px; letter-spacing: .5px; font-weight: 400; background: #1a0f2e; border-radius: 6px; padding: 0 5px; color: #ffe14a; }
+#hud .passive.flash { animation: pflash .5s ease-out; }
+@keyframes pflash { 30% { transform: scale(1.25); box-shadow: 0 0 22px 6px var(--glow, #fff); } }
 #hud .key { position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%); font-size: 12px; color: #fff; text-shadow: 0 1px 0 #000; opacity: .8; display: none; }
 @media (pointer: fine) { #hud .key { display: block; } #hud .abtn .key { bottom: 6px; } }
 @media (max-height: 480px) { #hud .btns { transform: scale(.8); transform-origin: 100% 100%; } }
@@ -138,6 +153,8 @@ export class HUD {
       <div class="feed"></div>
       <div class="banner"></div>
       <div class="toast ol"></div>
+      <div class="rotate ol">Turn your phone sideways for the full arena</div>
+      <button class="mute" type="button" aria-label="Sound on or off" title="Sound"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z" fill="#fff"/><path class="w" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path class="x" d="M17 9l5 6M22 9l-5 6"/></svg></button>
       <div class="respawn"><div class="ol">KNOCKED OUT<br><span class="rs">3</span></div></div>
       <div class="controls"></div>`;
     this.ovLayer = root.querySelector('.ovs');
@@ -153,6 +170,7 @@ export class HUD {
     this.lowEl = root.querySelector('.lowhp');
     this.toastEl = root.querySelector('.toast');
     this.controls = root.querySelector('.controls');
+    this.muteBtn = root.querySelector('.mute');
     this.ovs = new Map();
     this.nums = [];
     this.iconKey = [];
@@ -242,8 +260,35 @@ export class HUD {
     });
   }
 
+  // Passive powers: small badges beside the buttons with their cooldown.
+  updatePassives(p, input) {
+    const box = input.root.querySelector('.btns');
+    const pas = p.powers.filter(s => s.passive);
+    this.pasEls ||= [];
+    while (this.pasEls.length > pas.length) this.pasEls.pop().el.remove();
+    pas.forEach((slot, i) => {
+      let e = this.pasEls[i];
+      if (!e) { const el = document.createElement('div'); el.className = 'passive'; el.innerHTML = '<canvas></canvas><div class="cd"></div><b class="ol">AUTO</b>'; box.appendChild(el); e = this.pasEls[i] = { el, slot: null, cd: 0 }; }
+      if (e.slot !== slot) {
+        e.slot = slot;
+        iconCanvas(e.el.querySelector('canvas'), slot);
+        e.el.style.setProperty('--tier', TIER_COLORS[slot.dna.tier]);
+        e.el.style.setProperty('--glow', STYLE[slot.ess]?.glow ?? '#fff');
+        e.el.title = `${slot.dna.name}: ${slot.dna.info?.text?.[0] ?? 'triggers by itself'}`;
+      }
+      e.el.style.right = (206 + i * 58) + 'px';
+      e.el.style.bottom = '8px';
+      const k = slot.cdMax > 0 ? slot.cd / slot.cdMax : 0;
+      e.el.querySelector('.cd').style.setProperty('--p', (k * 100).toFixed(1));
+      if (e.cd <= 0 && slot.cd > 0) { e.el.classList.remove('flash'); void e.el.offsetWidth; e.el.classList.add('flash'); }
+      e.cd = slot.cd;
+    });
+  }
+
   update(dt, input) {
     const g = this.game, w = g.world, p = g.player;
+    this.root.classList.toggle('menu', !!g.lobby?.active);
+    if (g.lobby?.active) return;
     // overhead bars
     for (const f of w.fighters) {
       const o = this.overlay(f);
@@ -289,6 +334,7 @@ export class HUD {
     // power buttons
     if (input && p) {
       this.setPowerIcons(input);
+      this.updatePassives(p, input);
       const pw = p.powers.filter(s => !s.passive);
       input.btnEls.forEach(b => {
         const i = Number(b.dataset.slot);

@@ -297,20 +297,22 @@ V.thunderTitan = (C, ctx) => {
   const volt = glowGrad('#ffe14d', '#fffbe0', 1.4, 2.1, 1, 0.6);
   const cl = tone('#6b6fb0', '#2a2c50', '#d7d9f7', 1.3, 1.7, 0.3, 0.6);
   return {
-    build: 'hero', skin: armor, armSkin: armor, legSkin: dark, bulk: 1.08, s: 1.02,
+    build: 'hero', skin: armor, armSkin: armor, legSkin: dark, bulk: 1.12, s: 1.08,
+    cape: (J, s) => [[0, 1.25 * s, -0.26 * s], [0, 0.8 * s, -0.3 * s]],
     headCore: (J, s) => S.union(0.03 * s,
       S.ellipsoid(J.headC, J.headR),
       S.ellipsoid([0, J.headC[1] - 0.09 * s, J.headC[2] + 0.06 * s], [0.15 * s, 0.1 * s, 0.14 * s]),
     ),
     headSkin: tone('#5a52f0', '#1e1b4b', '#b4bdfd', 1.5, 1.85, 0.8, 0.5),
     headExtras: (J, s) => [
-      S.ellipsoid([0, J.headC[1] + 0.045 * s, J.headC[2] + 0.17 * s], [0.16 * s, 0.03 * s, 0.05 * s]).rot(-0.2, 0, 0).paint(gold),
+      S.ellipsoid([0, J.headC[1] + 0.13 * s, J.headC[2] + 0.13 * s], [0.17 * s, 0.03 * s, 0.07 * s]).rot(-0.45, 0, 0).paint(gold),
       S.mirror(bolt([[0.14 * s, 1.74 * s, 0.03 * s], [0.24 * s, 1.86 * s, 0.0], [0.19 * s, 1.88 * s, 0.0], [0.3 * s, 2.04 * s, -0.04 * s]], 0.045 * s, 0.012 * s)).paint(volt),
     ],
     hand: (J, s) => S.union(0.02 * s, fist(J.wr, s, 0.12 * s, dark), S.torus([J.wr[0], J.wr[1] + 0.02 * s, J.wr[2]], 0.1 * s, 0.03 * s).rot(0.2, 0, 0.2).paint(gold).bone('foreArm.L')),
     extras: (J, s) => [
+      capeSheet(J, s, tone('#312a9c', '#12103a', '#6366f1', 0.2, 1.6, 0.15, 0.35), 1.0, 0.34),
       S.mirror(S.union(0.02 * s,
-        cloud([0.38 * s, 1.5 * s, -0.02 * s], 0.13 * s, cl),
+        cloud([0.4 * s, 1.52 * s, -0.02 * s], 0.17 * s, cl),
         bolt([[0.44 * s, 1.4 * s, 0.06 * s], [0.49 * s, 1.3 * s, 0.1 * s], [0.46 * s, 1.27 * s, 0.1 * s], [0.52 * s, 1.16 * s, 0.13 * s]], 0.022 * s, 0.006 * s).paint(volt),
       ).bone('chest')),
       bolt([[0.05 * s, 1.4 * s, 0.24 * s], [-0.04 * s, 1.28 * s, 0.26 * s], [0.03 * s, 1.26 * s, 0.26 * s], [-0.05 * s, 1.12 * s, 0.24 * s]], 0.035 * s, 0.015 * s).paint(volt).bone('chest'),
@@ -684,8 +686,8 @@ V.voidWalker = (C, ctx) => {
 // Null Avatar (void form) / Unmaker (titan): faceless grey sentinel, white rune lines, void core, cube halo.
 V.nullAvatar = (C, ctx) => {
   const titan = ctx.role === 'titan';
-  const armor = bands(titan ? '#1f1f24' : '#3f3f46', titan ? '#0c0c0f' : '#18181b', [0, 0, 0], [0, 1, 0], 0.16, 0.12, 0.6, 0.25);
-  const runes = veins(tone(titan ? '#2a2a31' : '#52525b', '#0c0c0f', titan ? '#52525b' : '#a1a1aa', 0.2, 1.9, 0.6, 0.4), '#f4f4ff', 4, 0.025, 1, 11);
+  const armor = bands(titan ? '#1f1f24' : '#71717a', titan ? '#0c0c0f' : '#3f3f46', [0, 0, 0], [0, 1, 0], 0.16, 0.12, 0.6, 0.25);
+  const runes = veins(tone(titan ? '#2a2a31' : '#8a8a94', titan ? '#0c0c0f' : '#3f3f46', titan ? '#52525b' : '#d4d4d8', 0.2, 1.9, 0.6, 0.45), '#f4f4ff', 4, 0.025, 1, 11);
   const white = G('#f4f4ff', 1, 0.6);
   const s0 = titan ? 1.75 : 1.0;
   return {

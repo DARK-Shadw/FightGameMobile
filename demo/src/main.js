@@ -13,6 +13,8 @@ import { PlayerInput } from './game/input.js';
 import { BotBrain } from './game/bot.js';
 import { draftPowers, draftStats, rollStats, splash, DRAFT_CSS } from './game/draft.js';
 import { HEROES } from './art/heroes.js';
+import { SFX, attachSfx } from './game/sfx.js';
+import { Lobby } from './game/lobby.js';
 import { forge, fromCode, evolveCode, fuseCode } from '../../prototypes/skill-forge/forge.js';
 import { present } from '../../prototypes/skill-forge/describe.js';
 
@@ -77,9 +79,19 @@ async function main() {
   game.world.focus = player;
   game.world.snapCamera();
   const hud = new HUD(game, hudRoot);
+  const sfx = new SFX();
+  game.sfx = sfx;
+  attachSfx(sfx, game);
+  const unlock = () => sfx.unlock();
+  addEventListener('pointerdown', unlock);
+  addEventListener('keydown', unlock);
+  hud.muteBtn.classList.toggle('off', sfx.muted);
+  hud.muteBtn.addEventListener('click', e => { e.stopPropagation(); sfx.unlock(); sfx.setMuted(!sfx.muted); hud.muteBtn.classList.toggle('off', sfx.muted); });
   const input = new PlayerInput(game, player, hud.controls);
   if (!params.has('auto')) player.controller = input;
   game.teamRings = addTeamRings(game);
+  const lobby = game.lobby = new Lobby(stage, game);
+  addEventListener('resize', () => lobby.resize());
   setProgress(1, 'Ready!');
   await frame();
   boot?.classList.add('done');
@@ -92,7 +104,7 @@ async function main() {
       game.update(dt);
       if (game.fighting) game.timeLeft -= dt;
     } else {
-      game.world.updateCamera(dt);
+      if (lobby.active) lobby.update(dt); else game.world.updateCamera(dt);
       game.world.fx.update(dt);
       input.indicator.visible = false;
     }
@@ -100,11 +112,24 @@ async function main() {
     hud.update(dt, input);
   };
   if (!LAB) {
+    // quality governor: step down resolution, shadows, MSAA and bloom while frames run slow
+    const gov = { t: 0, frames: 0, level: 0 };
+    if (matchMedia('(pointer: coarse)').matches && devicePixelRatio > 2) { gov.level = 1; stage.setQuality(1); }
     const loop = now => {
-      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      requestAnimationFrame(loop);
+      if (window.__minFrame && now - last < window.__minFrame) return; // test hook: software renderers
+      const real = (now - last) / 1000;
+      const dt = Math.min(0.05, real); last = now;
       tick(dt);
       stage.render(dt);
-      requestAnimationFrame(loop);
+      if (!game.paused && !document.hidden && real < 0.5) {
+        gov.t += real; gov.frames++;
+        if (gov.t > 2.5) {
+          const fps = gov.frames / gov.t;
+          gov.t = 0; gov.frames = 0;
+          if (fps < 42 && gov.level < 3 && !window.__minFrame) { gov.level++; stage.setQuality(gov.level); }
+        }
+      }
     };
     requestAnimationFrame(loop);
   }
@@ -127,9 +152,10 @@ async function main() {
 
   const UI = params.get('ui');   // lab: show a menu screen for screenshots (title | draft | stats)
   const flow = async () => {
+    if (!LAB || UI) lobby.enter();
     if (LAB && UI) {
       game.paused = true;
-      if (UI === 'title') await splash(ui, TITLE_HTML, 'PLAY');
+      if (UI === 'title') await splash(ui, TITLE_HTML, 'PLAY', 'title', TITLE_BELOW);
       if (UI === 'draft') {
         const tiers = (params.get('tiers') || 'epic,legendary,godly').split(',');
         const opts = tiers.map(t => withInfo(forge({ tier: t, seed: params.get('seed') ? params.get('seed') + t : undefined })));
@@ -139,13 +165,14 @@ async function main() {
       return;
     }
     if (!LAB && !codes) {
-      await splash(ui, TITLE_HTML, 'PLAY');
+      await splash(ui, TITLE_HTML, 'PLAY', 'title', TITLE_BELOW);
     }
     if (!codes) {
       const opts = [forgeFor(1, 6), forgeFor(1, 6), forgeFor(1, 6)];
       if (!opts.some(s => ['epic', 'legendary', 'godly'].includes(s.tier))) opts[2] = withInfo(forge({ tier: 'epic' }));
       if (!LAB) {
-        const i = await draftPowers(ui, 'FORGE YOUR FIRST POWER', 'Pick one. Nobody has ever had these exact powers.', opts.map(s => ({ skill: s })), drawIcon);
+        const i = await draftPowers(ui, 'FORGE YOUR FIRST POWER', 'Pick one. Nobody has ever had these exact powers.', opts.map(s => withReveal({ skill: s }, sfx)), drawIcon);
+        sfx.ui('click');
         give(player, opts[i]);
       } else give(player, opts[0]);
     }
@@ -154,8 +181,13 @@ async function main() {
       await fight(game, hud, ui);
       if (LAB) return;
       game.round++;
+      for (const s2 of game.summons.slice()) if (s2.alive) s2.die(null);
+      for (const f of game.brawlers) f.clearStatuses();
+      lobby.enter();
       const stats = rollStats(3);
+      sfx.ui('legend');
       const si = await draftStats(ui, `LEVEL ${game.round}!`, stats);
+      sfx.ui('click');
       stats[si].apply(player);
       player.level = game.round;
       const opts = [{ skill: forgeFor(game.round, 4) }, { skill: forgeFor(game.round, 4) }];
@@ -169,7 +201,8 @@ async function main() {
       } else opts.push({ skill: forgeFor(game.round, 4) });
       const castable = player.powers.filter(p => !p.passive);
       for (const o of opts) if (!o.kind && castable.length >= 3 && o.skill.trigger === 'cast') o.kind = `REPLACES ${castable[0].dna.name}`;
-      const i = await draftPowers(ui, 'FORGE A NEW POWER', 'New, evolved or fused. Your kit keeps up to 3 active powers.', opts, drawIcon);
+      const i = await draftPowers(ui, 'FORGE A NEW POWER', 'New, evolved or fused. Your kit keeps up to 3 active powers.', opts.map(o => withReveal(o, sfx)), drawIcon);
+      sfx.ui('click');
       replaceOrAdd(game, player, opts[i].skill, opts[i].replaces);
       for (const f of game.brawlers) if (f !== player || params.has('auto')) {
         const st = rollStats(1)[0]; st.apply(f);
@@ -199,12 +232,15 @@ async function main() {
         }
         return out.toDataURL('image/png');
       },
-      info: () => `score ${game.score.join(':')} t=${game.world.time.toFixed(1)} ` + game.brawlers.map(f => `${f.name}:${Math.round(f.hp)}${f.alive ? '' : '(dead)'} [${f.powers.map(p => p.dna.code).join(',')}]`).join(' '),
+      info: () => `calls ${stage.renderer.info.render.calls} tris ${stage.renderer.info.render.triangles} fx ${game.world.fx.effects.length} puffs ${game.world.fx.cloud.n} parts ${game.world.fx.add.n}+${game.world.fx.alpha.n} | score ${game.score.join(':')} t=${game.world.time.toFixed(1)} ` + game.brawlers.map(f => `${f.name}:${Math.round(f.hp)}${f.alive ? '' : '(dead)'} [${f.powers.map(p => p.dna.code).join(',')}]`).join(' '),
     };
   }
 }
 
-const TITLE_HTML = `<h1 class="ol" style="font-size:clamp(40px,9vw,84px);line-height:.95">SKILL FORGE<br><span style="color:#ffc02e">ARENA</span></h1><h2 style="max-width:560px">Every round you forge a brand new power. No presets: each one is born from the same rules that can make a fireball or stop time.</h2>`;
+const TITLE_HTML = `<h1 class="ol" style="font-size:clamp(30px,min(8vw,11vh),76px);line-height:.95">SKILL FORGE <span style="color:#ffc02e">ARENA</span></h1><div class="vs ol">VS</div>`;
+const TITLE_BELOW = `<h2>Every round you forge a brand new power. No presets: each one is born from the same rules that can make a fireball or stop time.</h2>`;
+
+const withReveal = (o, sfx) => ({ ...o, onReveal: () => sfx.ui(['legendary', 'godly'].includes(o.skill.tier) ? 'legend' : 'reveal') });
 
 function drawIcon(canvas, s) { iconCanvas(canvas, { ess: s.essences[0], dna: s }); }
 
@@ -223,6 +259,14 @@ export function replaceOrAdd(game, f, s, replaces) {
 }
 
 async function fight(game, hud, ui) {
+  game.lobby?.exit();
+  // creatures for the powers in play are baked before the round, behind a short overlay
+  let veil = null;
+  await game.prebakeCreatures((i, n, job) => {
+    if (!veil) { veil = document.createElement('div'); veil.className = 'draft'; veil.innerHTML = '<h1 class="ol">SUMMONING…</h1><h2 class="sub"></h2>'; ui.appendChild(veil); }
+    veil.querySelector('.sub').textContent = `${job[1]} ${job[0]} (${i + 1}/${n})`;
+  });
+  veil?.remove();
   // everyone back to their spawn, full health
   game.score = [0, 0];
   for (const f of game.brawlers) {
@@ -237,6 +281,7 @@ async function fight(game, hud, ui) {
   game.paused = false;
   game.fighting = true;
   hud.banner(`ROUND ${game.round}`, 'FIGHT!', 'First team to 5 knockouts', '');
+  game.sfx?.ui('fight');
   await new Promise(resolve => {
     const check = () => {
       if (game.score[0] >= 5 || game.score[1] >= 5 || game.timeLeft <= 0) return resolve();
@@ -247,6 +292,7 @@ async function fight(game, hud, ui) {
   game.fighting = false;
   const won = game.score[game.world.playerTeam] > game.score[1 - game.world.playerTeam];
   const draw = game.score[0] === game.score[1];
+  game.sfx?.ui(won ? 'win' : 'lose');
   hud.banner(draw ? 'TIME!' : won ? 'VICTORY' : 'DEFEAT', draw ? 'DRAW' : won ? 'Round won!' : 'Round lost', 'Level up and forge another power', draw ? '' : won ? '' : '');
   await new Promise(r => setTimeout(r, 2200));
   game.paused = true;

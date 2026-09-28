@@ -180,12 +180,12 @@ export function outlineMaterial(opts = {}) {
     vertexColors: opts.vertexColors ?? true,
     transparent: !!opts.transparent,
   });
-  const u = { uWidth: { value: opts.width ?? 0.0022 }, uOutlineAlpha: { value: 1 } };
+  const u = { uWidth: { value: opts.width ?? 0.0022 }, uOutlineAlpha: { value: 1 }, uDissolve: { value: 0 } };
   mat.userData.u = u;
   mat.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uWidth;')
+      .replace('#include <common>', '#include <common>\nuniform float uWidth;\nvarying vec3 vOWorld;')
       .replace('#include <skinning_vertex>', `#include <skinning_vertex>
 #ifdef USE_SKINNING
   vec3 oN = normalize( objectNormal );
@@ -197,13 +197,20 @@ export function outlineMaterial(opts = {}) {
 #else
   vec4 oView = modelViewMatrix * vec4( transformed, 1.0 );
 #endif
-  transformed += oN * uWidth * max( -oView.z, 1.0 );`);
+  transformed += oN * uWidth * max( -oView.z, 1.0 );
+#ifdef USE_INSTANCING
+  vOWorld = ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz;
+#else
+  vOWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+#endif`);
     // albedo * color gives a darker, tinted version of the surface color
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uOutlineAlpha;')
-      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a *= uOutlineAlpha;');
+      .replace('#include <common>', '#include <common>\nuniform float uOutlineAlpha;\nuniform float uDissolve;\nvarying vec3 vOWorld;\n' + NOISE_GLSL)
+      .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+gl_FragColor.a *= uOutlineAlpha;
+if ( uDissolve > 0.001 && tNoise( vOWorld * 9.0 ) * 0.65 + tNoise( vOWorld * 23.0 ) * 0.35 < uDissolve + 0.02 ) discard;`);
   };
-  mat.customProgramCacheKey = () => 'outline-v1';
+  mat.customProgramCacheKey = () => 'outline-v2';
   return mat;
 }
 

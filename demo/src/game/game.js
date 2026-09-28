@@ -3,12 +3,14 @@
 // draft screens (main.js) sit on top of this.
 
 import { World } from './world.js';
+import { buildHero } from '../art/heroes.js';
 import { Fighter } from './fighter.js';
 import { PowerSlot, castPower, basicAttack, shootBolt } from './powers.js';
 import { atomParams } from './atoms.js';
-import { summonMinions, summonClones, summonTitan, raiseDead, transformInto, makeCritter, loadCreatures } from './summons.js';
+import { summonMinions, summonClones, summonTitan, raiseDead, transformInto, makeCritter, loadCreatures, prebake } from './summons.js';
 
 export const TEAM_COLORS = ['#3fa9ff', '#ff4a5a'];
+export const HERO_CELL = 0.019;
 
 export class Game {
   constructor(stage, arena, opts = {}) {
@@ -36,7 +38,9 @@ export class Game {
     const team = o.team ?? 0;
     const slot = o.slot ?? this.brawlers.filter(b => b.team === team).length;
     const sp = this.spawns[team][slot % this.spawns[team].length];
-    const f = new Fighter(this.world, { hero: o.hero, team, name: o.name, isPlayer: o.isPlayer, x: sp[0], z: sp[2], facing: team === 0 ? Math.PI : 0, essence: o.essence, maxHp: o.maxHp ?? 1600 });
+    // gameplay meshes are a little coarser than close-up ones: identical at game zoom, half the triangles
+    const model = buildHero(o.hero || 'kai', { cell: o.cell ?? HERO_CELL });
+    const f = new Fighter(this.world, { hero: o.hero, model, team, name: o.name, isPlayer: o.isPlayer, x: sp[0], z: sp[2], facing: team === 0 ? Math.PI : 0, essence: o.essence, maxHp: o.maxHp ?? 1600 });
     f.spawnSlot = slot;
     f.basicDamage = o.basicDamage ?? 260;
     f.passiveHook = (ev, data) => this.trigger(f, ev, data);
@@ -56,6 +60,9 @@ export class Game {
     if (!f.essenceLocked) f.essence = dna.essences[0];
     return slot;
   }
+
+  // Bake every creature the current powers can summon, transform into or hex into.
+  prebakeCreatures(onStep) { return prebake(this.brawlers.flatMap(f => f.powers.map(p => p.dna)), onStep); }
 
   cast(f, slot, aim) { return castPower(this, f, slot, aim); }
   attack(f, dir) { return basicAttack(this, f, dir); }
@@ -136,8 +143,7 @@ export class Game {
   respawn(f) {
     const sp = this.spawns[f.team][f.spawnSlot % this.spawns[f.team].length];
     f.revive(1, sp);
-    f.statuses = {};
-    f.shieldHp = 0;
+    f.clearStatuses();
     f.push.set(0, 0, 0);
     f.vel.set(0, 0, 0);
     f.ammo = f.ammoMax;
