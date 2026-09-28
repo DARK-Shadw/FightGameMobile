@@ -44,8 +44,9 @@ void RE_Direct_Lambert( const in IncidentLight directLight, const in vec3 geomet
   vec3 H = normalize( directLight.direction + geometryViewDir );
   float nh = max( dot( geometryNormal, H ), 0.0 );
   float gloss = vSurf.x;
-  float s = pow( nh, mix( 10.0, 160.0, gloss ) );
-  s = smoothstep( 0.45, 0.6, s ) * pow( gloss, 1.5 ) * uSpecAmount;
+  float gl = clamp( gloss, 0.0, 1.0 );
+  float s = pow( nh, mix( 10.0, 160.0, gl ) );
+  s = smoothstep( 0.45, 0.6, s ) * gl * sqrt( gl ) * uSpecAmount;
   reflectedLight.directSpecular += s * ramp * directLight.color * 0.55;
 }
 void RE_IndirectDiffuse_Lambert( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in LambertMaterial material, inout ReflectedLight reflectedLight ) {
@@ -91,7 +92,8 @@ const FRAG_OUT = /* glsl */`
     // frozen-time wave spreading from the caster; a bright wavefront leads it
     float sd = distance( vWorldPos.xz, uStop.xy );
     greyAmt = max( greyAmt, uStop.w * smoothstep( uStop.z, uStop.z - 2.0, sd ) );
-    outgoingLight += vec3( 0.55, 0.75, 1.0 ) * exp( -pow( ( sd - uStop.z ) * 2.4, 2.0 ) ) * uStop.w * 0.55;
+    float wf = ( sd - uStop.z ) * 2.4;
+    outgoingLight += vec3( 0.55, 0.75, 1.0 ) * exp( -wf * wf ) * uStop.w * 0.55;
   }
   if ( greyAmt > 0.001 ) {
     float lum = dot( outgoingLight, vec3( 0.299, 0.587, 0.114 ) );

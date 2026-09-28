@@ -11,6 +11,20 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { SHARED } from './toon.js';
 
+// Runs between the scene and bloom: a single NaN/Inf pixel (from any shader,
+// on any GPU) would otherwise be smeared across the whole frame by the blur.
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      bool bad = any(isnan(c)) || any(isinf(c)) || !(c.r + c.g + c.b + c.a > -1.0);
+      c = bad ? vec4(0.0, 0.0, 0.0, 1.0) : c;
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), clamp(c.a, 0.0, 1.0));
+    }`,
+};
+
 const FinalShader = {
   uniforms: {
     tDiffuse: { value: null },
@@ -60,7 +74,8 @@ const FinalShader = {
       vec2 d = uv - uTimeStopCenter; d.x *= uAspect;
       float r = length(d);
       // time-stop ripple bends the image along the expanding ring
-      float ringBand = exp(-pow((r - uTimeStopRing) * 18.0, 2.0)) * step(0.001, uTimeStopRing);
+      float rb = (r - uTimeStopRing) * 18.0;
+      float ringBand = exp(-rb * rb) * step(0.001, uTimeStopRing);
       uv -= normalize(d + 1e-5) * ringBand * 0.012 * vec2(1.0 / uAspect, 1.0);
       // rewind: horizontal tape wobble
       uv.x += uRewind * (sin(uv.y * 90.0 + uTime * 40.0) * 0.0025 + (hash(vec2(floor(uv.y * 60.0), floor(uTime * 20.0))) - 0.5) * 0.006);
@@ -151,6 +166,7 @@ export class Stage {
     const composer = new EffectComposer(renderer, rt);
     this.renderPass = new RenderPass(scene, camera);
     composer.addPass(this.renderPass);
+    composer.addPass(new ShaderPass(SanitizeShader));
     this.renderer.info.autoReset = false; // count every pass of a frame
     this.bloom = new UnrealBloomPass(size, opts.bloomStrength ?? 0.42, 0.35, 1.2);
     composer.addPass(this.bloom);
@@ -162,17 +178,15 @@ export class Stage {
     this.resize();
   }
 
-  // 0 full, 1 lighter resolution, 2 smaller shadows and MSAA, 3 no bloom, no MSAA
+  // 0 full, 1 and 2 lower resolution, 3 lowest resolution without bloom.
+  // Only cheap switches here: MSAA and shadow buffers are never reallocated mid-game.
   setQuality(level) {
     this.quality = level;
     const base = Math.min(window.devicePixelRatio || 1, this.opts.maxPixelRatio ?? 2);
     this.renderer.setPixelRatio([base, Math.min(base, 1.3), Math.min(base, 1), Math.min(base, 0.8)][level]);
-    const sm = level >= 2 ? 1024 : (this.opts.shadowSize ?? 2048);
-    if (this.sun.shadow.mapSize.x !== sm) { this.sun.shadow.mapSize.set(sm, sm); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
-    const samples = [4, 4, 2, 0][level];
-    for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) if (rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
     this.bloom.enabled = level < 3;
     this.resize();
+    console.info('[quality] level', level, 'pixel ratio', this.renderer.getPixelRatio());
   }
 
   resize(w, h) {

@@ -133,6 +133,7 @@ export class World {
   updateCamera(dt) {
     const f = this.focus;
     if (!f) return;
+    if (![this.camLook.x, this.camLook.z].every(Number.isFinite)) this.camLook.set(0, 0, 0);
     const aim = f.aimDir;
     this.camTarget.set(f.pos.x + aim.x * 0.8, 0, f.pos.z + aim.y * 0.8 - 0.5);
     this.camLook.lerp(this.camTarget, Math.min(1, dt * 5));

@@ -32,6 +32,22 @@ const tip = boot?.querySelector('.tip');
 const setProgress = (k, text) => { if (bar) bar.style.width = (k * 100).toFixed(0) + '%'; if (tip && text) tip.textContent = text; };
 const frame = () => new Promise(r => requestAnimationFrame(() => r()));
 
+// If the browser drops the WebGL context (driver reset, memory pressure), say so instead of showing black.
+canvas.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  let el = document.getElementById('gl-lost');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'gl-lost';
+    el.style.cssText = 'position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(20,10,38,.92);color:#fff;font:600 18px system-ui,sans-serif;text-align:center;padding:16px';
+    el.innerHTML = '<div>The browser reset the graphics.<br><br><button type="button" style="font:inherit;padding:10px 26px;border-radius:12px;border:3px solid #1a0f2e;background:#ffc02e;cursor:pointer">Reload the game</button></div>';
+    el.querySelector('button').addEventListener('click', () => location.reload());
+    document.body.appendChild(el);
+  }
+  el.hidden = false;
+});
+canvas.addEventListener('webglcontextrestored', () => { const el = document.getElementById('gl-lost'); if (el) el.hidden = true; });
+
 const stage = new Stage(canvas, { capture: LAB, maxPixelRatio: LAB ? 1 : Math.min(devicePixelRatio, innerWidth * innerHeight > 1.4e6 ? 1.25 : 1.75) });
 stage.resize(innerWidth, innerHeight);
 addEventListener('resize', () => stage.resize(innerWidth, innerHeight));

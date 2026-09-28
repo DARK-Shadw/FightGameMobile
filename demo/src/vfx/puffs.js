@@ -26,7 +26,7 @@ void main() {
   n = vec3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z);
   vObj = position + iP.y * 3.7;
   vec3 wp = iPos + p * iScale.xyz;
-  vN = normalize(n / iScale.xyz);
+  vN = normalize(n / max(abs(iScale.xyz), vec3(1e-3)));
   float k = iP.x;
   vCol = k < 0.45 ? mix(iA, iB, smoothstep(0.0, 0.45, k)) : mix(iB, iC, smoothstep(0.45, 0.95, k));
   vRim = mix(iB, iC, 0.35 + 0.65 * k);
@@ -68,7 +68,8 @@ void main() {
   col += vCol * smoothstep(0.55, 1.0, fres) * 0.35 * lit * (1.0 - hot);
   col = mix(col, vRim * mix(uShade, vec3(1.0), lit), smoothstep(0.25, 0.95, fres) * hot * 0.75);
   // hot puffs: bright (bloom) while young, glowing dissolve rim
-  col *= 1.0 + hot * pow(1.0 - k, 2.0) * 2.2;
+  float young = clamp(1.0 - k, 0.0, 1.0);
+  col *= 1.0 + hot * young * young * 2.2;
   col += vCol * smoothstep(cut + 0.07, cut, nz) * step(0.001, cut) * (0.6 + hot * 2.0);
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -133,14 +134,15 @@ export class PuffSystem {
   // o: { pos, vel, life, size (radius) or [start, end], squash (y scale), colors: [a, b, c] (hex),
   //      hot 0..1, gravity (negative rises), drag, floor, cut (dissolve start 0..1), unscaled }
   spawn(o) {
-    if (this.n >= this.max) return;
+    if (this.n >= this.max || !o.pos.every(Number.isFinite)) return;
     const i = this.n++;
     const i3 = i * 3;
     this.p.set(o.pos, i3);
     this.v.set(o.vel || [0, 0, 0], i3);
     this.life[i] = 0;
     this.maxLife[i] = o.life ?? 0.8;
-    const sz = Array.isArray(o.size) ? o.size : [o.size ?? 0.5, (o.size ?? 0.5) * 1.3];
+    const raw = Array.isArray(o.size) ? o.size : [o.size ?? 0.5, (o.size ?? 0.5) * 1.3];
+    const sz = raw.map(v => (Number.isFinite(v) && v > 0.01 ? v : 0.05));
     const sq = o.squash ?? 1;
     this.s0.set([sz[0], sz[0] * sq, sz[0]], i3);
     this.s1.set([sz[1], sz[1] * sq, sz[1]], i3);

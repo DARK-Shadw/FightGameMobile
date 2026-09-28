@@ -311,7 +311,20 @@ export class Fighter {
     this.syncTransform(dt);
   }
 
+  // A bad number anywhere in a power's math must never strand a brawler (or the camera) at NaN.
+  guardPosition() {
+    if (Number.isFinite(this.pos.x) && Number.isFinite(this.pos.z)) return;
+    console.warn('[fighter] invalid position reset', this.name);
+    const h = this.history.findLast?.(p => Number.isFinite(p.x) && Number.isFinite(p.z));
+    this.pos.set(h ? h.x : 0, 0, h ? h.z : 0);
+    this.vel.set(0, 0, 0);
+    this.push.set(0, 0, 0);
+    this.leap = null;
+    this.dashing = null;
+  }
+
   syncTransform() {
+    this.guardPosition();
     this.group.position.set(this.pos.x, this.y || 0, this.pos.z);
     this.model.group.rotation.y = this.facing;
     this.blob.position.set(this.pos.x, 0.013, this.pos.z);

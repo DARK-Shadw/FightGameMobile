@@ -21,7 +21,7 @@ void main() {
   vUv = uv;
   vN = normalize(normalMatrix * normal);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vV = normalize(-mv.xyz);
+  vV = -mv.xyz; // normalized per fragment (safe for points at the eye)
   gl_Position = projectionMatrix * mv;
 }`;
 
@@ -44,12 +44,12 @@ void main() {
     heat = 1.0 - d;
     alpha = smoothstep(1.0, 0.55, d);
   } else if (uMode < 1.5) {              // surface (spheres, shells)
-    float f = 1.0 - abs(dot(safeN(vN), normalize(vV)));
+    float f = clamp(1.0 - abs(dot(safeN(vN), safeN(vV))), 0.0, 1.0);
     heat = mix(1.0, pow(f, 1.5), uFresnel);
     alpha = mix(1.0, smoothstep(0.0, 0.9, f), uFresnel);
   } else if (uMode < 2.5) {              // beams and cones: bright core along the axis
     float across = abs(uv.x - 0.5) * 2.0;
-    float f = 1.0 - abs(dot(safeN(vN), normalize(vV)));
+    float f = clamp(1.0 - abs(dot(safeN(vN), safeN(vV))), 0.0, 1.0);
     heat = mix(1.0 - across, 1.0 - f, uFresnel);
     alpha = smoothstep(1.0, 0.2, max(across, f * uFresnel)) * smoothstep(0.0, uSoft, uv.y) * smoothstep(1.0, 1.0 - uSoft, uv.y);
   } else if (uMode < 3.5) {              // disc
