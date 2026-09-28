@@ -277,6 +277,7 @@ async function fight(game, hud, ui) {
   }
   for (const s of game.summons.slice()) if (s.alive) s.die(null);
   game.world.snapCamera();
+  game.world.camZoom = 0.42; // open close on your brawler, then pull back to the arena view
   hud.roundEl.textContent = `ROUND ${game.round}`;
   game.timeLeft = 90;
   game.paused = false;
