@@ -1,0 +1,3 @@
+# build-apk.sh output: intermediates and the page copied from dist/offline
+build/
+assets/

@@ -38,6 +38,7 @@ const [page0, out] = args;
     console.log(logs.join('\n'));
     throw e;
   }
+  if (opt('waitfor')) await page.waitForFunction(k => window[k], opt('waitfor'), { timeout: 60000 });
   const t0 = Date.now();
   if (opt('call')) await page.evaluate(c => eval('window.__lab.' + c), opt('call'));
   const warm = Number(opt('warm', 0));

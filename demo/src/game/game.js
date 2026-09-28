@@ -1,6 +1,6 @@
 // Match orchestration without any DOM: spawns brawlers, gives them powers,
-// runs passive triggers, summons, deaths and respawns. The HUD, input and
-// draft screens (main.js) sit on top of this.
+// runs passive triggers, summons, deaths and respawns. The HUD, input, menus
+// and LAN sync (main.js, net/) sit on top of this.
 
 import { World } from './world.js';
 import { buildHero } from '../art/heroes.js';
@@ -27,6 +27,7 @@ export class Game {
     this.spawns = opts.spawns || [[[0, 0, 8.5], [-3, 0, 8], [3, 0, 8]], [[0, 0, -8.5], [3, 0, -8], [-3, 0, -8]]];
     this.score = [0, 0];
     this.paused = false;
+    this.replica = false; // LAN joiner: shows the host's match (see net/sync.js)
     const ev = this.world.events;
     ev.on('death', ({ target, src }) => this.onDeath(target, src));
   }
@@ -34,17 +35,41 @@ export class Game {
   static async preload() { await loadCreatures(); }
 
   // ── brawlers ─────────────────────────────────────────────────────────
+  // Replaces every brawler (a new match or a new lobby lineup). Summons,
+  // lingering power entities and walls from the last match go too.
+  setRoster(roster) {
+    const w = this.world;
+    for (const f of [...this.brawlers, ...this.summons]) f.dispose();
+    for (const e of w.entities) e.dispose?.();
+    w.entities.length = 0;
+    w.fighters.length = 0;
+    w.dynWalls.length = 0;
+    w.globalStop = null;
+    w.timeScale = 1;
+    this.brawlers = [];
+    this.summons = [];
+    this.corpses = [];
+    this.score = [0, 0];
+    const slots = [0, 0];
+    for (const r of roster) this.addBrawler({ ...r, slot: slots[r.team ?? 0]++ });
+    return this.brawlers;
+  }
+
   addBrawler(o) {
     const team = o.team ?? 0;
     const slot = o.slot ?? this.brawlers.filter(b => b.team === team).length;
     const sp = this.spawns[team][slot % this.spawns[team].length];
     // gameplay meshes are a little coarser than close-up ones: identical at game zoom, half the triangles
     const model = buildHero(o.hero || 'kai', { cell: o.cell ?? HERO_CELL });
-    const f = new Fighter(this.world, { hero: o.hero, model, team, name: o.name, isPlayer: o.isPlayer, x: sp[0], z: sp[2], facing: team === 0 ? Math.PI : 0, essence: o.essence, maxHp: o.maxHp ?? 1600 });
+    const f = new Fighter(this.world, { id: o.id, hero: o.hero, model, team, name: o.name, isPlayer: o.isPlayer, x: sp[0], z: sp[2], facing: team === 0 ? Math.PI : 0, essence: o.essence, maxHp: o.maxHp ?? 1600 });
     f.spawnSlot = slot;
+    f.control = o.control || 'bot';   // local | bot | remote (host: a joiner plays it) | puppet (joiner: someone else plays it)
+    f.peer = o.peer ?? null;
+    f.remote = f.control === 'remote';
+    f.puppet = f.control === 'puppet';
+    f.level = 1; f.xp = 0; f.offers = [];
     f.basicDamage = o.basicDamage ?? 260;
     f.passiveHook = (ev, data) => this.trigger(f, ev, data);
-    f.level = 1;
     this.world.add(f);
     this.brawlers.push(f);
     return f;
@@ -63,6 +88,10 @@ export class Game {
 
   // Bake every creature the current powers can summon, transform into or hex into.
   prebakeCreatures(onStep) { return prebake(this.brawlers.flatMap(f => f.powers.map(p => p.dna)), onStep); }
+  prebakeFor(dna) { return prebake([dna]); }
+
+  // A level-up choice (a LAN client routes this to the host instead).
+  choose(f, offerId, i) { return this.match?.pick(f, i, offerId); }
 
   cast(f, slot, aim) { return castPower(this, f, slot, aim); }
   attack(f, dir) { return basicAttack(this, f, dir); }
@@ -78,7 +107,7 @@ export class Game {
 
   // ── passive triggers ─────────────────────────────────────────────────
   trigger(f, ev, data) {
-    if (!f.alive && ev !== 'onDeath') return false;
+    if (this.replica || (!f.alive && ev !== 'onDeath')) return false;
     let saved = false;
     for (const slot of f.powers) {
       if (!slot.passive || slot.dna.trigger !== ev || slot.cd > 0 || slot.uses <= 0 || slot.stolen) continue;
@@ -89,8 +118,8 @@ export class Game {
         if (res) {
           saved = true;
           f.hp = Math.max(1, f.maxHp * atomParams(res).hpPct / 100);
-          this.world.fx.selfBurst?.(slot.ess, f, 1.5);
-          this.world.fx.flash('#ffffff', 0.4);
+          this.world.show('selfBurst', slot.ess, f, 1.5);
+          this.world.show('flash', '#ffffff', 0.4);
           this.world.events.emit('resurrect', { target: f });
         }
       }
@@ -141,14 +170,17 @@ export class Game {
     }
     if (f.kind === 'brawler') {
       const killer = src?.owner || src;
-      if (killer && killer.team !== f.team) this.score[killer.team]++;
-      f.respawnT = this.respawnTime;
+      if (!this.replica) {
+        if (killer && killer.team !== f.team) this.score[killer.team]++;
+        f.respawnT = this.respawnTime + Math.max(0, (f.level || 1) - 4) * 0.5;
+      }
       if (f.form) f.removeStatus('form');
     }
   }
 
-  respawn(f) {
+  respawn(f, first = false) {
     const sp = this.spawns[f.team][f.spawnSlot % this.spawns[f.team].length];
+    if (first) f.alive = false;
     f.revive(1, sp);
     f.clearStatuses();
     f.push.set(0, 0, 0);
@@ -158,13 +190,16 @@ export class Game {
     f.facing = f.team === 0 ? Math.PI : 0;
     f.addStatus('shield', 1.5, { ess: 'light' });
     f.shieldHp = 400; f.shieldT = 1.5;
+    f.warp++;
     this.world.fx.teleport?.(f.essence, f.center());
+    this.world.events.emit('respawn', { f, first });
   }
 
   update(dt) {
     if (this.paused) return;
     this.world.update(dt);
-    for (const f of this.brawlers) {
+    this.match?.update(dt);
+    if (!this.replica) for (const f of this.brawlers) {
       if (!f.alive && f.respawnT !== undefined && f.respawnT !== null) {
         f.respawnT -= dt;
         if (f.respawnT <= 0) { f.respawnT = null; this.respawn(f); }

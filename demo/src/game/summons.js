@@ -87,7 +87,8 @@ class SummonBrain {
     if (this.target && d > 0.01) f.aimDir.set(dx / d, dz / d);
     if (this.target && d <= this.o.range + this.target.radius && this.cd <= 0 && f.canAct()) {
       this.cd = this.o.rate;
-      this.o.attack(this.game, f, this.target);
+      w.net?.summonAttack(f, this.target);
+      f.attackFn(this.game, f, this.target);
     }
   }
 }
@@ -117,22 +118,81 @@ function boltShot(dmg, ess, size = 0.36) {
   };
 }
 
-function summonFighter(game, o) {
-  const f = new Fighter(game.world, { team: o.team, name: o.name, x: o.x, z: o.z, facing: o.facing ?? 0, essence: o.ess, kind: o.kind, owner: o.owner,
-    model: o.model, animator: o.animator, maxHp: o.hp, speed: o.speed, radius: o.radius, height: o.height });
+// A titan's ground slam: a shockwave in front of it that knocks enemies away.
+function titanSlam(ess) {
+  return (g, f) => {
+    f.setAction('slam', 0.7);
+    g.world.spawn({ t: 0.35, owner: f, update(dt) {
+      this.t -= dt;
+      if (this.t > 0) return true;
+      if (!f.alive) return false;
+      const at = [f.pos.x + f.aimDir.x * 1.4, 0, f.pos.z + f.aimDir.y * 1.4];
+      g.world.fx.impact(ess, [at[0], 0.3, at[2]], 2.4, 0.9);
+      g.world.fx.nova?.(ess, at, 2.4);
+      for (const e of g.world.inCircle(at[0], at[2], 2.4, o => o.team !== f.team)) {
+        e.takeDamage(Math.round(160 * f.buffs.dmg), f.owner || f, { ess, dir: [e.pos.x - at[0], 0, e.pos.z - at[2]] });
+        e.knock(e.pos.x - at[0], e.pos.z - at[2], 9);
+      }
+      return false;
+    } });
+  };
+}
+const ATTACKS = { melee: a => meleeHit(a.dmg, a.ess, a.radius), bolt: a => boltShot(a.dmg, a.ess, a.size), slam: a => titanSlam(a.ess) };
+
+// A summon's body: the creature library's model for (role, essence) when it
+// has one, else a tinted, scaled copy of the caster's brawler.
+function lookModel(look, ess) {
+  const cm = look.creature ? creatureModel(look.creature, ess) : null;
+  if (cm) return cm;
+  return { model: heroCopy(look.hero, ess, { scale: look.scale, tint: look.tint }), height: look.height, radius: look.radius };
+}
+
+// Everything about a summon is a plain spec (look, stats, attack), so a LAN
+// host can send it and joiners build the same creature.
+//   spec: { kind, ess, team, name, x, z, facing, hp, speed, radius, height, dur, fxScale, ghost,
+//           look: { creature, hero, scale, tint, height, radius, rise },
+//           brain: { range, rate, aggro, attack: { type: melee|bolt|slam, dmg, ess, size, radius } } }
+export function summonFighter(game, spec, owner, id) {
+  const w = game.world, ess = spec.ess;
+  const m = lookModel(spec.look, ess);
+  const f = new Fighter(w, { id, team: spec.team, name: spec.name, x: spec.x, z: spec.z, facing: spec.facing ?? 0, essence: ess, kind: spec.kind, owner,
+    model: m.model, animator: m.animator, maxHp: spec.hp, speed: spec.speed, radius: spec.radius ?? m.radius ?? spec.look.radius, height: spec.height ?? m.height ?? spec.look.height });
   f.hp = f.maxHp;
-  f.summonLife = o.dur;
-  f.brain = new SummonBrain(game, f, o.brain);
-  f.controller = { update: dt => {
-    f.brain.update(dt);
-    f.summonLife -= dt;
-    if (f.summonLife <= 0 && f.alive) { game.world.fx.puffs(o.ess, [f.pos.x, 0.2, f.pos.z], 8, 0.7, { alpha: 0.6 }); f.die(null); }
-  } };
-  game.world.add(f);
+  f.summonLife = spec.dur;
+  f.attackFn = ATTACKS[spec.brain.attack.type](spec.brain.attack);
+  if (game.replica) f.puppet = true;
+  else {
+    f.brain = new SummonBrain(game, f, spec.brain);
+    f.controller = { update: dt => {
+      f.brain.update(dt);
+      f.summonLife -= dt;
+      if (f.summonLife <= 0 && f.alive) { w.show('puffs', ess, [f.pos.x, 0.2, f.pos.z], 8, 0.7, { alpha: 0.6 }); f.die(null); }
+    } };
+  }
+  if (spec.ghost) {
+    f.setLook('uGhost', spec.ghost);
+    f.lookMats.forEach(mt => { mt.transparent = true; mt.needsUpdate = true; });
+  }
+  w.add(f);
   game.addSummon(f);
+  w.net?.summoned(f, spec);
   // arrival
+  const fx = w.fx, st = STYLE[ess] || STYLE.fire;
   f.setAction('spawn', 0.5);
-  game.world.fx.impact(o.ess, [f.pos.x, 0.3, f.pos.z], 0.8 * (o.fxScale ?? 1), 0.3);
+  if (spec.look.rise) {
+    fx.push(L.circle(w.scene, { pos: [spec.x, 0, spec.z], color: STYLE.death.color, core: STYLE.death.core, radius: 0.9, dur: 0.9, spin: 2 }));
+    fx.motif(ess, 'impact', [spec.x, 0.3, spec.z], 0.8, 0.6);
+  }
+  fx.impact(ess, [f.pos.x, 0.3, f.pos.z], 0.8 * (spec.fxScale ?? 1), 0.3);
+  if (spec.kind === 'clone') fx.teleport?.(ess, f.center());
+  if (spec.kind === 'titan') {
+    // landing: dust ring, cracks, a big shake
+    fx.push(L.ring(w.scene, { pos: [spec.x, 0, spec.z], color: st.color, core: st.core, radius: 4.5, dur: 0.6 }));
+    fx.slamCracks?.(ess, [spec.x, 0, spec.z], 3);
+    fx.shake(1.1);
+    fx.flash(st.glow, 0.3);
+    w.events.emit('titan', { caster: owner || f, ess, name: f.name });
+  }
   return f;
 }
 
@@ -141,21 +201,16 @@ export function summonMinions(game, ctx, count, dur, pow, where, ess) {
   const caster = ctx.caster;
   const info = ESSENCES[ess];
   const out = [];
+  const ranged = ['storm', 'light', 'tide', 'space', 'mind', 'time'].includes(ess);
+  const dmg = Math.round(38 + pow * 1.2);
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-    const x = where[0] + Math.cos(a) * 1.2, z = where[2] + Math.sin(a) * 1.2;
-    const cm = creatureModel('minion', ess);
-    const ranged = ['storm', 'light', 'tide', 'space', 'mind', 'time'].includes(ess);
-    const dmg = Math.round(38 + pow * 1.2);
-    let model, animator, height, radius;
-    if (cm) ({ model, animator, height, radius } = cm);
-    else { model = heroCopy(caster.heroId, ess, { scale: 0.55, tint: 0.6 }); height = 0.85; radius = 0.3; }
-    const f = summonFighter(game, {
-      team: caster.team, owner: caster, name: info?.minion?.[0] ?? 'minion', ess, kind: 'minion', x, z, facing: caster.facing,
-      model, animator, hp: 260 + pow * 3, speed: 4.6, radius: radius ?? 0.32, height: height ?? 0.8, dur,
-      brain: ranged ? { range: 5, rate: 1.0, attack: boltShot(dmg, ess, 0.3) } : { range: 0.9, rate: 0.8, attack: meleeHit(dmg, ess) },
-    });
-    out.push(f);
+    out.push(summonFighter(game, {
+      kind: 'minion', ess, team: caster.team, name: info?.minion?.[0] ?? 'minion', x: where[0] + Math.cos(a) * 1.2, z: where[2] + Math.sin(a) * 1.2, facing: caster.facing,
+      hp: 260 + pow * 3, speed: 4.6, dur,
+      look: { creature: 'minion', hero: caster.heroId, scale: 0.55, tint: 0.6, height: 0.85, radius: 0.3 },
+      brain: ranged ? { range: 5, rate: 1.0, attack: { type: 'bolt', dmg, ess, size: 0.3 } } : { range: 0.9, rate: 0.8, attack: { type: 'melee', dmg, ess } },
+    }, caster));
   }
   game.world.events.emit('summon', { caster, count, ess, kind: 'minion' });
   return out;
@@ -166,57 +221,24 @@ export function summonClones(game, ctx, count, dur, dmgPct, ess) {
   const out = [];
   for (let i = 0; i < count; i++) {
     const a = caster.facing + (i - (count - 1) / 2) * 1.2 + Math.PI / 2;
-    const model = heroCopy(caster.heroId, ess, { tint: 0.5 });
-    const x = caster.pos.x + Math.cos(a) * 1.3, z = caster.pos.z + Math.sin(a) * 1.3;
-    const f = summonFighter(game, {
-      team: caster.team, owner: caster, name: ESSENCES[ess]?.clones?.[0] ?? 'double', ess, kind: 'clone', x, z, facing: caster.facing,
-      model, hp: 300, speed: caster.speed, dur,
-      brain: { range: 6.5, rate: 0.7, aggro: 11, attack: boltShot(Math.round(90 * dmgPct / 100 + 20), ess, 0.38) },
-    });
-    f.setLook('uGhost', 0.3);
-    f.lookMats.forEach(m => { m.transparent = true; m.needsUpdate = true; });
-    game.world.fx.teleport?.(ess, f.center());
-    out.push(f);
+    out.push(summonFighter(game, {
+      kind: 'clone', ess, team: caster.team, name: ESSENCES[ess]?.clones?.[0] ?? 'double', x: caster.pos.x + Math.cos(a) * 1.3, z: caster.pos.z + Math.sin(a) * 1.3, facing: caster.facing,
+      hp: 300, speed: caster.speed, dur, ghost: 0.3,
+      look: { hero: caster.heroId, tint: 0.5 },
+      brain: { range: 6.5, rate: 0.7, aggro: 11, attack: { type: 'bolt', dmg: Math.round(90 * dmgPct / 100 + 20), ess, size: 0.38 } },
+    }, caster));
   }
   return out;
 }
 
 export function summonTitan(game, ctx, hp, dur, where, ess) {
   const caster = ctx.caster;
-  const cm = creatureModel('titan', ess);
-  let model, animator, height, radius;
-  if (cm) ({ model, animator, height, radius } = cm);
-  else { model = heroCopy(caster.heroId, ess, { scale: 2.1, tint: 0.55 }); height = 3.1; radius = 0.95; }
-  const st = STYLE[ess] || STYLE.fire;
-  const slam = (g, f, target) => {
-    f.setAction('slam', 0.7);
-    g.world.spawn({ t: 0.35, owner: f, update(dt) {
-      this.t -= dt;
-      if (this.t > 0) return true;
-      if (!f.alive) return false;
-      const at = [f.pos.x + f.aimDir.x * 1.4, 0, f.pos.z + f.aimDir.y * 1.4];
-      g.world.fx.impact(ess, [at[0], 0.3, at[2]], 2.4, 0.9);
-      g.world.fx.nova?.(ess, at, 2.4);
-      for (const e of g.world.inCircle(at[0], at[2], 2.4, o => o.team !== f.team)) {
-        e.takeDamage(Math.round(160 * f.buffs.dmg), caster, { ess, dir: [e.pos.x - at[0], 0, e.pos.z - at[2]] });
-        e.knock(e.pos.x - at[0], e.pos.z - at[2], 9);
-      }
-      return false;
-    } });
-  };
-  const f = summonFighter(game, {
-    team: caster.team, owner: caster, name: (ESSENCES[ess]?.titan ?? 'Titan').replace(/^an? /, ''), ess, kind: 'titan',
-    x: where[0], z: where[2], facing: caster.facing, model, animator, hp, speed: 2.6, radius: radius ?? 0.9, height: height ?? 3, dur, fxScale: 2.5,
-    brain: { range: 1.9, rate: 1.5, aggro: 14, attack: slam },
-  });
-  // landing: dust ring, cracks, a big shake
-  const fx = game.world.fx;
-  fx.push(L.ring(game.world.scene, { pos: [where[0], 0, where[2]], color: st.color, core: st.core, radius: 4.5, dur: 0.6 }));
-  fx.slamCracks?.(ess, where, 3);
-  fx.shake(1.1);
-  fx.flash(st.glow, 0.3);
-  game.world.events.emit('titan', { caster, ess, name: f.name });
-  return f;
+  return summonFighter(game, {
+    kind: 'titan', ess, team: caster.team, name: (ESSENCES[ess]?.titan ?? 'Titan').replace(/^an? /, ''), x: where[0], z: where[2], facing: caster.facing,
+    hp, speed: 2.6, dur, fxScale: 2.5,
+    look: { creature: 'titan', hero: caster.heroId, scale: 2.1, tint: 0.55, height: 3.1, radius: 0.95 },
+    brain: { range: 1.9, rate: 1.5, aggro: 14, attack: { type: 'slam', ess } },
+  }, caster);
 }
 
 // Necromancy: the fallen (or the ground itself) rise as thralls of the caster.
@@ -230,17 +252,12 @@ export function raiseDead(game, ctx, count, dur, hpPct, where, radius) {
     w.spawn({ t: 0.25 + i * 0.18, owner: caster, update(dt) {
       this.t -= dt;
       if (this.t > 0) return true;
-      w.fx.push(L.circle(w.scene, { pos: s, color: STYLE.death.color, core: STYLE.death.core, radius: 0.9, dur: 0.9, spin: 2 }));
-      w.fx.motif(ess, 'impact', [s[0], 0.3, s[2]], 0.8, 0.6);
-      const cm = creatureModel('minion', ess);
-      let model, animator, height, rad;
-      if (cm) ({ model, animator, height, radius: rad } = cm);
-      else { model = heroCopy(caster.heroId, ess, { scale: 0.62, tint: 0.7 }); height = 0.95; rad = 0.32; }
       out.push(summonFighter(game, {
-        team: caster.team, owner: caster, name: 'risen', ess, kind: 'minion', x: s[0], z: s[2], model, animator,
-        hp: Math.round(700 * hpPct / 100), speed: 3.8, radius: rad ?? 0.32, height: height ?? 0.9, dur,
-        brain: { range: 0.9, rate: 0.9, attack: meleeHit(55, ess) },
-      }));
+        kind: 'minion', ess, team: caster.team, name: 'risen', x: s[0], z: s[2], facing: caster.facing,
+        hp: Math.round(700 * hpPct / 100), speed: 3.8, dur,
+        look: { creature: 'minion', hero: caster.heroId, scale: 0.62, tint: 0.7, height: 0.95, radius: 0.32, rise: true },
+        brain: { range: 0.9, rate: 0.9, attack: { type: 'melee', dmg: 55, ess } },
+      }, caster));
       return false;
     } });
   });
@@ -283,7 +300,7 @@ export function transformInto(game, who, ess, dur, bonus) {
   fx.push(L.pillar(w.scene, { pos: [who.pos.x, 0, who.pos.z], color: st.color, core: st.core, radius: 1.3, height: 9, dur: 0.7 }));
   fx.shake(0.7);
   fx.flash(st.glow, 0.3);
-  w.events.emit('transform', { who, ess, name: form.name });
+  w.events.emit('transform', { who, ess, name: form.name, dur, bonus });
   // aura while transformed
   const aura = { t: 0, update(dt) {
     if (who.form !== form || !who.alive) return false;

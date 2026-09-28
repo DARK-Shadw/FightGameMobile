@@ -99,10 +99,11 @@ export class PlayerInput {
       <div class="stick-zone"></div>
       <div class="stick"><div class="knob"></div></div>
       <div class="btns">
-        <div class="pbtn" data-slot="2"><canvas></canvas><div class="cd"></div><span class="key">R</span></div>
-        <div class="pbtn" data-slot="1"><canvas></canvas><div class="cd"></div><span class="key">E</span></div>
-        <div class="pbtn" data-slot="0"><canvas></canvas><div class="cd"></div><span class="key">Q</span></div>
-        <div class="abtn" data-slot="-1"><div class="ammo"><i></i><i></i><i></i></div><span class="key">Click</span></div>
+        <div class="pbtn" data-slot="3"><canvas></canvas><div class="cd"></div><div class="ult"><b></b></div><div class="lock"></div><span class="key">F</span></div>
+        <div class="pbtn" data-slot="2"><canvas></canvas><div class="cd"></div><div class="ult"><b></b></div><div class="lock"></div><span class="key">R</span></div>
+        <div class="pbtn" data-slot="1"><canvas></canvas><div class="cd"></div><div class="ult"><b></b></div><div class="lock"></div><span class="key">E</span></div>
+        <div class="pbtn" data-slot="0"><canvas></canvas><div class="cd"></div><div class="ult"><b></b></div><div class="lock"></div><span class="key">Q</span></div>
+        <div class="abtn" data-slot="-1"><div class="ammo"><i></i><i></i><i></i><i></i></div><span class="key">Click</span></div>
       </div>`;
     this.stickEl = r.querySelector('.stick');
     this.knobEl = r.querySelector('.knob');
@@ -116,7 +117,8 @@ export class PlayerInput {
       if (!this.enabled) return;
       const k = e.key.toLowerCase();
       this.keys.add(k);
-      const map = { q: 0, e: 1, r: 2, 1: 0, 2: 1, 3: 2 };
+      if (this.picker?.key(k)) { e.preventDefault(); return; }
+      const map = { q: 0, e: 1, r: 2, f: 3 };
       if (k in map && !e.repeat) this.castAtCursor(map[k]);
       if (k === ' ' && !e.repeat) this.attackAtCursor();
     });
@@ -180,7 +182,11 @@ export class PlayerInput {
     }
   }
 
-  slotOf(which) { return which < 0 ? null : this.player.powers.filter(s => !s.passive)[which] || null; }
+  slotOf(which) {
+    if (which < 0) return null;
+    if (which === 3) return this.player.powers.find(s => s.borrowed) || null;
+    return this.player.powers.find(s => !s.passive && s.index === which) || null;
+  }
 
   // Drag vector (screen px) → aim in the world. Screen up is world -z.
   aimFromDrag(which, dx, dy) {
@@ -213,7 +219,7 @@ export class PlayerInput {
     aim = aim || this.autoAim(which);
     if (which < 0) { this.game.attack(f, aim.dir); return; }
     const slot = this.slotOf(which);
-    if (!slot) return;
+    if (!slot) { this.onEmptySlot?.(which); return; }
     if (!slot.ready) { this.btnEls.find(b => Number(b.dataset.slot) === which)?.animate([{ transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'none' }], { duration: 160 }); return; }
     this.game.cast(f, slot, aim);
   }

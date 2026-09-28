@@ -1,28 +1,34 @@
-// Skill Forge Arena: boot, match flow (draft → fight → level up → draft...)
-// and the frame loop.
-//   ?code=KV.G.time,K5.G.death   start with these powers (skips the first draft)
-//   ?lab=1                        fixed-timestep driver for the screenshot harness
-//   ?auto=1                       the player is a bot too (attract mode / QA)
+// Skill Forge Arena: boot, the menu → match → results loop, and the frame loop.
+//   ?code=KV.G.time,K5.G.death   start at max level with these powers (sandbox)
+//   ?lab=1                        fixed-timestep driver for the screenshot tools
+//                                 (&ui=title|results|picker shows a screen)
+//   ?auto=1                       your seat is played by a bot too (attract mode / QA);
+//                                 with &rounds=N, menus click themselves for N matches
+//   ?time=90                      match length in seconds
+//   ?level=4                      you start at that level (the picks queue up)
 
 import * as THREE from 'three';
 import { Stage } from './engine/stage.js';
 import { buildArena } from './game/arena.js';
 import { Game } from './game/game.js';
-import { HUD, HUD_CSS, iconCanvas } from './game/hud.js';
+import { HUD, HUD_CSS } from './game/hud.js';
+import { THEME_CSS } from './game/theme.js';
+import { MENU_CSS, AUTO, titleScreen, resultsScreen } from './game/menus.js';
+import { Picker } from './game/picker.js';
 import { PlayerInput } from './game/input.js';
 import { BotBrain } from './game/bot.js';
-import { draftPowers, draftStats, rollStats, splash, DRAFT_CSS, AUTO } from './game/draft.js';
+import { Match } from './game/match.js';
 import { HEROES } from './art/heroes.js';
 import { SFX, attachSfx } from './game/sfx.js';
 import { Lobby } from './game/lobby.js';
-import { forge, fromCode, evolveCode, fuseCode } from '../../prototypes/skill-forge/forge.js';
-import { present } from '../../prototypes/skill-forge/describe.js';
+import { dnaOf, MAX_LEVEL, LEVEL_XP } from './game/progression.js';
+import { Net, NET_CSS } from './net/session.js';
 
 const params = new URLSearchParams(location.search);
 const LAB = params.has('lab');
 AUTO.on = params.has('auto') && params.has('rounds');
 const css = document.createElement('style');
-css.textContent = HUD_CSS + DRAFT_CSS;
+css.textContent = THEME_CSS + HUD_CSS + MENU_CSS + NET_CSS;
 document.head.appendChild(css);
 
 const canvas = document.getElementById('c');
@@ -31,6 +37,7 @@ const bar = boot?.querySelector('.fill');
 const tip = boot?.querySelector('.tip');
 const setProgress = (k, text) => { if (bar) bar.style.width = (k * 100).toFixed(0) + '%'; if (tip && text) tip.textContent = text; };
 const frame = () => new Promise(r => requestAnimationFrame(() => r()));
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
 // If the browser drops the WebGL context (driver reset, memory pressure), say so instead of showing black.
 canvas.addEventListener('webglcontextlost', e => {
@@ -39,8 +46,8 @@ canvas.addEventListener('webglcontextlost', e => {
   if (!el) {
     el = document.createElement('div');
     el.id = 'gl-lost';
-    el.style.cssText = 'position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(20,10,38,.92);color:#fff;font:600 18px system-ui,sans-serif;text-align:center;padding:16px';
-    el.innerHTML = '<div>The browser reset the graphics.<br><br><button type="button" style="font:inherit;padding:10px 26px;border-radius:12px;border:3px solid #1a0f2e;background:#ffc02e;cursor:pointer">Reload the game</button></div>';
+    el.style.cssText = 'position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(20,10,38,.92);color:#fff;font:800 18px Nunito,system-ui,sans-serif;text-align:center;padding:16px';
+    el.innerHTML = '<div>The browser reset the graphics.<br><br><button type="button" class="btn">RELOAD</button></div>';
     el.querySelector('button').addEventListener('click', () => location.reload());
     document.body.appendChild(el);
   }
@@ -52,21 +59,25 @@ const stage = new Stage(canvas, { capture: LAB, maxPixelRatio: LAB ? 1 : Math.mi
 stage.resize(innerWidth, innerHeight);
 addEventListener('resize', () => stage.resize(innerWidth, innerHeight));
 
-const BOT_NAMES = ['Blaze', 'Nova', 'Rook', 'Jinx', 'Moss', 'Vex', 'Pip', 'Sable', 'Kestrel', 'Onyx'];
+export const HERO_IDS = Object.keys(HEROES);
+export const HERO_NAMES = { kai: 'Kai', brute: 'Grom', punk: 'Zee', bot: 'Rivet' };
+export const BOT_NAMES = ['Blaze', 'Nova', 'Rook', 'Jinx', 'Moss', 'Vex', 'Pip', 'Sable', 'Kestrel', 'Onyx', 'Wren', 'Ash'];
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage may be blocked */ } } };
 
-// Tier odds shift upward each round: early rounds are fireballs, later ones break reality.
-function rollTier(round, luck = 0) {
-  const w = [
-    ['common', Math.max(4, 34 - round * 9)], ['rare', Math.max(8, 32 - round * 5)], ['epic', 24 + round * 2],
-    ['legendary', 8 + round * 5 + luck], ['godly', 2 + round * 4 + luck],
+export function soloRoster(hero) {
+  const names = shuffle(BOT_NAMES.slice());
+  const pool = HERO_IDS.filter(h => h !== hero);
+  const pick = i => pool[i % pool.length] || hero;
+  return [
+    { hero, team: 0, name: 'You', control: 'local' },
+    { hero: pick(0), team: 0, name: names.pop(), control: 'bot' },
+    { hero: pick(1), team: 0, name: names.pop(), control: 'bot' },
+    { hero: pick(2), team: 1, name: names.pop(), control: 'bot' },
+    { hero: pick(0), team: 1, name: names.pop(), control: 'bot' },
+    { hero: pick(1), team: 1, name: names.pop(), control: 'bot' },
   ];
-  let r = Math.random() * w.reduce((a, b) => a + b[1], 0);
-  for (const [t, x] of w) { r -= x; if (r <= 0) return t; }
-  return 'epic';
 }
-const withInfo = s => { s.info = present(s); return s; };
-const forgeFor = (round, luck) => withInfo(forge({ tier: rollTier(round, luck) }));
 
 async function main() {
   setProgress(0.05, 'Sculpting the arena…');
@@ -77,24 +88,6 @@ async function main() {
   await Game.preload();
   const game = new Game(stage, arena);
   const hudRoot = document.getElementById('hud');
-  // roster: the player plus two allies against three rivals
-  const heroIds = Object.keys(HEROES);
-  const others = heroIds.filter(h => h !== 'kai');
-  const pickHero = i => (others.length ? others[i % others.length] : 'kai');
-  const names = shuffle(BOT_NAMES.slice());
-  const roster = [{ hero: 'kai', team: 0, isPlayer: true, name: 'You' }];
-  for (let i = 0; i < 2; i++) roster.push({ hero: pickHero(i + 1), team: 0, name: names.pop() });
-  for (let i = 0; i < 3; i++) roster.push({ hero: pickHero(i), team: 1, name: names.pop() });
-  for (let i = 0; i < roster.length; i++) {
-    setProgress(0.55 + (i / roster.length) * 0.4, `Sculpting ${roster[i].name === 'You' ? 'your brawler' : roster[i].name}…`);
-    await frame();
-    const f = game.addBrawler(roster[i]);
-    if (!f.isPlayer || params.has('auto')) f.controller = new BotBrain(game, f, { skill: f.team === 0 ? 0.55 : 0.5 + Math.random() * 0.25 });
-  }
-  const player = game.brawlers[0];
-  game.player = player;
-  game.world.focus = player;
-  game.world.snapCamera();
   const hud = new HUD(game, hudRoot);
   const sfx = new SFX();
   game.sfx = sfx;
@@ -104,11 +97,55 @@ async function main() {
   addEventListener('keydown', unlock);
   hud.muteBtn.classList.toggle('off', sfx.muted);
   hud.muteBtn.addEventListener('click', e => { e.stopPropagation(); sfx.unlock(); sfx.setMuted(!sfx.muted); hud.muteBtn.classList.toggle('off', sfx.muted); });
-  const input = new PlayerInput(game, player, hud.controls);
-  if (!params.has('auto')) player.controller = input;
-  game.teamRings = addTeamRings(game);
   const lobby = game.lobby = new Lobby(stage, game);
   addEventListener('resize', () => lobby.resize());
+  const rings = new TeamRings(game);
+  let myHero = HERO_IDS.includes(store.get('sfa-hero')) ? store.get('sfa-hero') : 'kai';
+
+  // the first roster, sculpted behind the loading bar
+  const first = soloRoster(myHero);
+  for (let i = 0; i < first.length; i++) {
+    setProgress(0.55 + (i / first.length) * 0.4, `Sculpting ${first[i].control === 'local' ? 'your brawler' : first[i].name}…`);
+    await frame();
+    (await import('./art/heroes.js')).buildHero(first[i].hero, { cell: 0.019 });
+  }
+  const input = new PlayerInput(game, null, hud.controls);
+  const app = { game, hud, input, lobby, sfx, rings, params };
+  window.__sfa = app;
+  // Back (Android's back button, Esc): the newest screen's handler; none on the title (the app closes).
+  const backStack = [];
+  app.pushBack = fn => backStack.push(fn);
+  app.popBack = fn => { const i = backStack.lastIndexOf(fn); if (i >= 0) backStack.splice(i, 1); };
+  window.SFBack = () => {
+    const fn = backStack[backStack.length - 1];
+    if (!fn) return false;
+    try { fn(); } catch (e) { console.warn(e); }
+    return true;
+  };
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !e.repeat) window.SFBack(); });
+
+  // level-up picker for the local player
+  const picker = new Picker(hud.pickRoot, {
+    onChoose: (offerId, i) => { sfx.ui('click'); game.choose(game.player, offerId, i); },
+    slotName: i => game.player?.powers.find(p => !p.passive && p.index === i)?.dna.info?.name ?? '',
+  });
+  input.picker = picker;
+  app.picker = picker;
+  const ev = game.world.events;
+  const showOffer = f => { if (f === game.player) { if (f.offers?.length) picker.show(f.offers[0], f.offers.length); else picker.hide(); } };
+  ev.on('offer', e => { showOffer(e.f); if (e.f === game.player) sfx.ui(e.f.level >= 5 ? 'legend' : 'reveal'); });
+  ev.on('picked', e => showOffer(e.f));
+  ev.on('matchstart', () => picker.hide());
+  input.onEmptySlot = () => picker.reopen();
+  // a buzz in the Android app when you get hit hard, fall or level up
+  if (window.SFNative?.vibrate) {
+    const buzz = ms => { try { window.SFNative.vibrate(String(ms)); } catch { /* ignore */ } };
+    ev.on('damage', e => { if (e.target === game.player && !e.dot && e.amount >= 120) buzz(e.crit ? 35 : 15); });
+    ev.on('death', e => { if (e.target === game.player) buzz(120); });
+    ev.on('levelup', e => { if (e.f === game.player) buzz(40); });
+  }
+
+  setupRoster(app, first);
   setProgress(1, 'Ready!');
   await frame();
   boot?.classList.add('done');
@@ -117,19 +154,20 @@ async function main() {
   // ── frame loop ──
   let last = performance.now();
   const tick = dt => {
-    if (!game.paused) {
-      game.update(dt);
-      if (game.fighting) game.timeLeft -= dt;
-    } else {
+    app.net?.before(dt);
+    if (!game.paused) game.update(dt);
+    else {
       if (lobby.active) lobby.update(dt); else game.world.updateCamera(dt);
       game.world.fx.update(dt);
       input.indicator.visible = false;
     }
-    updateRings(game);
+    app.net?.after(dt);
+    rings.update();
     hud.update(dt, input);
   };
+  app.tick = tick;
   if (!LAB) {
-    // quality governor: step down resolution, shadows, MSAA and bloom while frames run slow
+    // quality governor: lower resolution, then bloom, while frames run slow
     const gov = { t: 0, frames: 0, level: 0 };
     if (matchMedia('(pointer: coarse)').matches && devicePixelRatio > 2) { gov.level = 1; stage.setQuality(1); }
     const loop = now => {
@@ -138,101 +176,53 @@ async function main() {
       const real = (now - last) / 1000;
       const dt = Math.min(0.05, real); last = now;
       tick(dt);
-      stage.render(dt);
+      if (!window.__noRender) stage.render(dt);
       if (!game.paused && !document.hidden && real < 0.5) {
         gov.t += real; gov.frames++;
         if (gov.t > 2.5) {
           const fps = gov.frames / gov.t;
           gov.t = 0; gov.frames = 0;
-          if (fps < 42 && gov.level < 3 && !window.__minFrame) { gov.level++; stage.setQuality(gov.level); }
+          if (fps < 42 && gov.level < 3 && !window.__minFrame && !window.__noRender) { gov.level++; stage.setQuality(gov.level); }
         }
       }
     };
     requestAnimationFrame(loop);
   }
 
-  // ── match flow ──
+  // ── menus and matches ──
   const ui = document.body;
   game.paused = true;
-  game.round = 1;
-  const give = (f, s) => { const slot = game.givePower(f, s); if (f.cdMul) slot.cdMax *= f.cdMul; return slot; };
-  const botsDraft = round => {
-    for (const f of game.brawlers) {
-      if (f.isPlayer && !params.has('auto')) continue;
-      const s = forgeFor(round, 0);
-      replaceOrAdd(game, f, s, null);
-    }
-  };
-
-  const codes = params.get('code');
-  if (codes) codes.split(',').forEach(c => give(player, withInfo(fromCode(c.trim()))));
-
-  const UI = params.get('ui');   // lab: show a menu screen for screenshots (title | draft | stats)
+  app.net = new Net(app, { setupRoster, playMatch, soloRoster, HERO_IDS, HERO_NAMES, BOT_NAMES });
+  const UI = params.get('ui');
   const flow = async () => {
-    if (!LAB || UI) lobby.enter();
-    if (LAB && UI) {
-      game.paused = true;
-      if (UI === 'title') await splash(ui, TITLE_HTML, 'PLAY', 'title', TITLE_BELOW);
-      if (UI === 'draft') {
-        const tiers = (params.get('tiers') || 'epic,legendary,godly').split(',');
-        const opts = tiers.map(t => withInfo(forge({ tier: t, seed: params.get('seed') ? params.get('seed') + t : undefined })));
-        await draftPowers(ui, 'FORGE YOUR FIRST POWER', 'Pick one. Nobody has ever had these exact powers.', opts.map(s => ({ skill: s })), drawIcon);
-      }
-      if (UI === 'stats') await draftStats(ui, 'LEVEL 2!', rollStats(3));
-      return;
-    }
-    if (!LAB && !codes) {
-      await splash(ui, TITLE_HTML, 'PLAY', 'title', TITLE_BELOW);
-    }
-    if (!codes) {
-      const opts = [forgeFor(1, 6), forgeFor(1, 6), forgeFor(1, 6)];
-      if (!opts.some(s => ['epic', 'legendary', 'godly'].includes(s.tier))) opts[2] = withInfo(forge({ tier: 'epic' }));
-      if (!LAB) {
-        const i = await draftPowers(ui, 'FORGE YOUR FIRST POWER', 'Pick one. Nobody has ever had these exact powers.', opts.map(s => withReveal({ skill: s }, sfx)), drawIcon);
-        sfx.ui('click');
-        give(player, opts[i]);
-      } else give(player, opts[0]);
-    }
-    botsDraft(1);
+    if (LAB && UI) return labScreen(app, UI);
+    if (LAB && !params.has('rounds')) { await playMatch(app, soloRoster(myHero)); return; }
+    lobby.enter();
     for (;;) {
-      await fight(game, hud, ui);
-      if (LAB && !(params.get('rounds') > game.round)) return;
-      game.round++;
-      for (const s2 of game.summons.slice()) if (s2.alive) s2.die(null);
-      for (const f of game.brawlers) f.clearStatuses();
-      lobby.enter();
-      const stats = rollStats(3);
-      sfx.ui('legend');
-      const si = await draftStats(ui, `LEVEL ${game.round}!`, stats);
+      const choice = await titleScreen(ui, {
+        lan: app.net.available,
+        heroName: () => HERO_NAMES[myHero] || myHero,
+        onHero: d => {
+          myHero = HERO_IDS[(HERO_IDS.indexOf(myHero) + d + HERO_IDS.length) % HERO_IDS.length];
+          store.set('sfa-hero', myHero);
+          lobby.exit(); setupRoster(app, soloRoster(myHero)); lobby.enter();
+        },
+      });
       sfx.ui('click');
-      stats[si].apply(player);
-      player.level = game.round;
-      const opts = [{ skill: forgeFor(game.round, 4) }, { skill: forgeFor(game.round, 4) }];
-      const mine = player.powers.slice();
-      if (game.round >= 3 && mine.length >= 2 && Math.random() < 0.65) {
-        const [a, b] = shuffle(mine).slice(0, 2);
-        opts.push({ skill: withInfo(fromCode(fuseCode(a.dna, b.dna))), kind: `FUSE ${a.dna.name} + ${b.dna.name}`, replaces: [a, b] });
-      } else if (mine.length) {
-        const a = mine[Math.floor(Math.random() * mine.length)];
-        opts.push({ skill: withInfo(fromCode(evolveCode(a.dna))), kind: `EVOLVE ${a.dna.name}`, replaces: [a] });
-      } else opts.push({ skill: forgeFor(game.round, 4) });
-      const castable = player.powers.filter(p => !p.passive);
-      for (const o of opts) if (!o.kind && castable.length >= 3 && o.skill.trigger === 'cast') o.kind = `REPLACES ${castable[0].dna.name}`;
-      const i = await draftPowers(ui, 'FORGE A NEW POWER', 'New, evolved or fused. Your kit keeps up to 3 active powers.', opts.map(o => withReveal(o, sfx)), drawIcon);
-      sfx.ui('click');
-      replaceOrAdd(game, player, opts[i].skill, opts[i].replaces);
-      for (const f of game.brawlers) if (f !== player || params.has('auto')) {
-        const st = rollStats(1)[0]; st.apply(f);
+      if (choice === 'lan') { await app.net.menu(myHero); continue; }
+      let again = 'again';
+      while (again === 'again') {
+        again = await playMatch(app, soloRoster(myHero), { buttons: [{ id: 'again', label: 'PLAY AGAIN' }, { id: 'menu', label: 'MENU', cls: 'dark' }] });
+        if (LAB && !(Number(params.get('rounds')) > (app.matches || 0))) return;
       }
-      botsDraft(game.round);
+      lobby.exit(); setupRoster(app, soloRoster(myHero)); lobby.enter();
     }
   };
-
   flow();
 
   if (LAB) {
     window.__lab = {
-      ready: true, stage, game,
+      ready: true, stage, game, app,
       step(total, dt = 1 / 30) { for (let t = 0; t < total - 1e-6; t += dt) tick(dt); stage.render(dt); },
       snap() { stage.render(0); return canvas.toDataURL('image/png'); },
       sheet(frames, dt, cols, scale) {
@@ -249,97 +239,159 @@ async function main() {
         }
         return out.toDataURL('image/png');
       },
-      info: () => `calls ${stage.renderer.info.render.calls} tris ${stage.renderer.info.render.triangles} fx ${game.world.fx.effects.length} puffs ${game.world.fx.cloud.n} parts ${game.world.fx.add.n}+${game.world.fx.alpha.n} | score ${game.score.join(':')} t=${game.world.time.toFixed(1)} ` + game.brawlers.map(f => `${f.name}:${Math.round(f.hp)}${f.alive ? '' : '(dead)'} [${f.powers.map(p => p.dna.code).join(',')}]`).join(' '),
+      info: () => `calls ${stage.renderer.info.render.calls} tris ${stage.renderer.info.render.triangles} | t=${game.world.time.toFixed(1)} score ${game.score.join(':')} ` + game.brawlers.map(f => `${f.name}:L${f.level}/${Math.round(f.xp)}xp ${Math.round(f.hp)}hp${f.alive ? '' : '(dead)'} [${f.powers.map(p => `${p.index}:${p.dna.code}`).join(',')}]`).join(' '),
     };
   }
 }
 
-const TITLE_HTML = `<h1 class="ol" style="font-size:clamp(30px,min(8vw,11vh),76px);line-height:.95">SKILL FORGE <span style="color:#ffc02e">ARENA</span></h1><div class="vs ol">VS</div>`;
-const TITLE_BELOW = `<h2>Every round you forge a brand new power. No presets: each one is born from the same rules that can make a fireball or stop time.</h2>`;
-
-const withReveal = (o, sfx) => ({ ...o, onReveal: () => sfx.ui(['legendary', 'godly'].includes(o.skill.tier) ? 'legend' : 'reveal') });
-
-function drawIcon(canvas, s) { iconCanvas(canvas, { ess: s.essences[0], dna: s }); }
-
-// Adds a power, or evolves/replaces when the kit is full (max 3 castable).
-export function replaceOrAdd(game, f, s, replaces) {
-  if (replaces) {
-    for (const r of [].concat(replaces)) f.powers = f.powers.filter(p => p !== r);
-  } else {
-    const castable = f.powers.filter(p => !p.passive);
-    if (!s.trigger || s.trigger === 'cast') { if (castable.length >= 3) f.powers = f.powers.filter(p => p !== castable[0]); }
-    else { const passives = f.powers.filter(p => p.passive); if (passives.length >= 2) f.powers = f.powers.filter(p => p !== passives[0]); }
+// Builds the six brawlers for a match (or the lobby) and wires their controls.
+export function setupRoster(app, roster) {
+  const { game, input } = app;
+  game.setRoster(roster);
+  for (const f of game.brawlers) {
+    if (f.control === 'bot' || (f.control === 'local' && app.params.has('auto'))) {
+      f.isBot = true;
+      f.controller = new BotBrain(game, f, { skill: f.team === 0 ? 0.55 : 0.5 + Math.random() * 0.25 });
+    }
   }
-  const slot = game.givePower(f, s);
-  if (f.cdMul) slot.cdMax *= f.cdMul;
-  return slot;
+  const me = game.brawlers.find(f => f.control === 'local') || game.brawlers[0];
+  game.player = me;
+  me.isPlayer = true;
+  game.world.playerTeam = me.team;
+  if (!me.isBot && me.control === 'local') me.controller = input;
+  input.player = me;
+  game.world.focus = me;
+  game.world.snapCamera();
+  app.rings.rebuild();
+  app.hud.iconKey = [];
 }
 
-async function fight(game, hud, ui) {
-  game.lobby?.exit();
-  // creatures for the powers in play are baked before the round, behind a short overlay
-  let veil = null;
-  await game.prebakeCreatures((i, n, job) => {
-    if (!veil) { veil = document.createElement('div'); veil.className = 'draft'; veil.innerHTML = '<h1 class="ol">SUMMONING…</h1><h2 class="sub"></h2>'; ui.appendChild(veil); }
-    veil.querySelector('.sub').textContent = `${job[1]} ${job[0]} (${i + 1}/${n})`;
-  });
-  veil?.remove();
-  // everyone back to their spawn, full health
-  game.score = [0, 0];
-  for (const f of game.brawlers) {
-    if (!f.alive) f.respawnT = 0;
-    game.respawn(f);
-    f.powers.forEach(p => { p.cd = Math.min(p.cdMax, 2); p.usedDeath = false; });
+// One match from the first whistle to the results screen. → the button pressed.
+export async function playMatch(app, roster, o = {}) {
+  const { game, lobby, hud, sfx, params } = app;
+  const ev = game.world.events;
+  lobby.exit();
+  if (roster) setupRoster(app, roster);
+  const match = game.match = new Match(game, { duration: Number(params.get('time')) || o.duration || 270, koTarget: o.koTarget || 20, replica: !!o.replica });
+  match.start();
+  // sandbox: ?code= starts you at max level with those powers
+  const codes = o.lan ? null : params.get('code');
+  if (codes && !o.replica) {
+    const me = game.player;
+    me.xp = LEVEL_XP[MAX_LEVEL]; me.level = MAX_LEVEL;
+    codes.split(',').slice(0, 3).forEach((c, i) => { const s = game.givePower(me, dnaOf(c.trim())); s.index = s.passive ? -1 : i; if (s.ult) s.charge = 1; });
   }
-  for (const s of game.summons.slice()) if (s.alive) s.die(null);
+  if (!o.replica) for (const f of game.brawlers) game.respawn(f, true);
+  // ?level=N: you start the match at level N with its level-up picks waiting
+  const lv = o.lan ? 0 : Math.min(MAX_LEVEL, Number(params.get('level')) || 0);
+  if (lv > 1 && !codes && !o.replica && !params.has('ui')) match.addXp(game.player, LEVEL_XP[lv] - game.player.xp);
   game.world.snapCamera();
   game.world.camZoom = 0.42; // open close on your brawler, then pull back to the arena view
-  hud.roundEl.textContent = `ROUND ${game.round}`;
-  game.timeLeft = 90;
   game.paused = false;
-  game.fighting = true;
-  hud.banner(`ROUND ${game.round}`, 'FIGHT!', 'First team to 5 knockouts', '');
-  game.sfx?.ui('fight');
-  await new Promise(resolve => {
-    const check = () => {
-      if (game.score[0] >= 5 || game.score[1] >= 5 || game.timeLeft <= 0) return resolve();
-      setTimeout(check, 200);
-    };
-    check();
-  });
-  game.fighting = false;
-  // the round ends in slow motion; nobody acts while the banner is up
+  hud.banner('Match start', 'FIGHT!', 'Hit, knock out and grab shards to level up', '');
+  sfx.ui('fight');
+  // back twice to leave the match
+  let backAt = -1e9;
+  const onBack = () => {
+    if (performance.now() - backAt < 2200) { if (o.onQuit) o.onQuit(); else match.abort(); return; }
+    backAt = performance.now();
+    hud.toast(o.lan ? 'Press back again to leave the party' : 'Press back again to leave the match');
+  };
+  app.pushBack?.(onBack);
+  const end = await new Promise(resolve => { const off = ev.on('matchend', e => { off(); resolve(e); }); });
+  app.popBack?.(onBack);
+  if (end.aborted) {
+    game.paused = true;
+    game.over = false;
+    game.world.timeScale = 1;
+    app.picker.hide();
+    for (const f of game.brawlers) f.clearStatuses();
+    lobby.enter();
+    match.dispose();
+    game.match = null;
+    return 'menu';
+  }
+  app.matches = (app.matches || 0) + 1;
+  // the match ends in slow motion; nobody acts while the banner is up
   game.over = true;
   game.world.timeScale = 0.3;
-  const won = game.score[game.world.playerTeam] > game.score[1 - game.world.playerTeam];
-  const draw = game.score[0] === game.score[1];
-  game.sfx?.ui(won ? 'win' : 'lose');
-  hud.banner(draw ? 'TIME!' : won ? 'VICTORY' : 'DEFEAT', draw ? 'DRAW' : won ? 'Round won!' : 'Round lost', 'Level up and forge another power', draw ? '' : won ? '' : '');
-  await new Promise(r => setTimeout(r, 2200));
+  const mine = game.world.playerTeam;
+  const verdict = end.winner === -1 ? 'draw' : end.winner === mine ? 'win' : 'lose';
+  sfx.ui(verdict === 'win' ? 'win' : 'lose');
+  hud.banner(verdict === 'draw' ? 'Time' : 'Match over', { win: 'VICTORY!', lose: 'DEFEAT', draw: 'DRAW' }[verdict], `${game.score[mine]} – ${game.score[1 - mine]}`, verdict === 'lose' ? 'lose' : verdict === 'win' ? 'godly' : '');
+  await wait(2400);
   game.paused = true;
   game.over = false;
   game.world.timeScale = 1;
+  app.picker.hide();
+  const data = resultsData(game, match, verdict, o.buttons || [{ id: 'menu', label: 'CONTINUE' }]);
+  for (const f of game.brawlers) f.clearStatuses();
+  lobby.enter();
+  let closeResults = null;
+  data.bind = go => { closeResults = go; };
+  const onResultsBack = () => closeResults?.(data.buttons[data.buttons.length - 1]?.id);
+  app.pushBack?.(onResultsBack);
+  const choice = o.results ? await o.results(data) : await resultsScreen(document.body, data);
+  app.popBack?.(onResultsBack);
+  match.dispose();
+  game.match = null;
+  return choice;
 }
 
-// Team rings under brawlers (blue = your team, red = rivals).
-function addTeamRings(game) {
-  const rings = new Map();
-  for (const f of game.brawlers) {
-    const mine = f === game.player;
-    const geo = new THREE.RingGeometry(mine ? 0.46 : 0.48, mine ? 0.6 : 0.56, 40);
-    geo.rotateX(-Math.PI / 2);
-    const col = f.team === game.world.playerTeam ? (mine ? '#6fd4ff' : '#3fa9ff') : '#ff4a5a';
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: mine ? 0.95 : 0.75, depthWrite: false }));
-    m.renderOrder = 11;
-    game.world.scene.add(m);
-    rings.set(f, m);
-  }
-  return rings;
+export function resultsData(game, match, verdict, buttons) {
+  const mine = game.world.playerTeam;
+  const rows = f => {
+    const s = match.statOf(f);
+    return { name: f.name, hero: HERO_NAMES[f.heroId] || f.heroId, level: f.level || 1, kos: s.kos, deaths: s.deaths, damage: Math.round(s.damage), me: f === game.player,
+      kit: f.powers.slice().sort((a, b) => (a.passive - b.passive) || a.index - b.index).map(p => ({ ess: p.ess, dna: p.dna })), score: s.kos * 1000 + s.damage };
+  };
+  const teams = [game.brawlers.filter(f => f.team === mine).map(rows), game.brawlers.filter(f => f.team !== mine).map(rows)];
+  const all = teams.flat();
+  const best = all.reduce((a, b) => (b.score > a.score ? b : a), all[0]);
+  if (best) best.mvp = true;
+  return { verdict, score: [game.score[mine], game.score[1 - mine]], teams, buttons };
 }
-function updateRings(game) {
-  for (const [f, m] of game.teamRings || []) {
-    m.visible = f.alive && f.group.visible && f.model.group.visible !== false;
-    m.position.set(f.pos.x, 0.03, f.pos.z);
+
+async function labScreen(app, UI) {
+  const { game, lobby } = app;
+  if (UI === 'title') { lobby.enter(); await titleScreen(document.body, { lan: true, heroName: () => 'Kai', onHero: () => {} }); }
+  if (UI === 'picker' || UI === 'results') {
+    const p = playMatch(app, soloRoster('kai'), { duration: 999 });
+    await wait(50);
+    const me = game.player;
+    const lv = Number(app.params.get('level') || 3);
+    game.match.addXp(me, LEVEL_XP[Math.min(MAX_LEVEL, lv)] - me.xp + 1);
+    if (app.params.has('sel')) app.picker.select(Number(app.params.get('sel')));
+    app.tick(0.05);
+    window.__labReady = true;
+    if (UI === 'results') { for (const f of game.brawlers) game.match.addXp(f, LEVEL_XP[Math.floor(Math.random() * 4) + 3]); game.match.end(0); }
+    await p;
+  }
+}
+
+// Team rings under brawlers (blue = your team, red = rivals, bright blue = you).
+class TeamRings {
+  constructor(game) { this.game = game; this.rings = new Map(); }
+  rebuild() {
+    for (const m of this.rings.values()) { m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); }
+    this.rings.clear();
+    const g = this.game;
+    for (const f of g.brawlers) {
+      const mine = f === g.player;
+      const geo = new THREE.RingGeometry(mine ? 0.46 : 0.48, mine ? 0.6 : 0.56, 40);
+      geo.rotateX(-Math.PI / 2);
+      const col = f.team === g.world.playerTeam ? (mine ? '#6fd4ff' : '#3fa9ff') : '#ff4a5a';
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: mine ? 0.95 : 0.75, depthWrite: false }));
+      m.renderOrder = 11;
+      g.world.scene.add(m);
+      this.rings.set(f, m);
+    }
+  }
+  update() {
+    for (const [f, m] of this.rings) {
+      m.visible = f.alive && f.group.visible && f.group.parent === this.game.world.scene && f.model.group.visible !== false;
+      m.position.set(f.pos.x, 0.03, f.pos.z);
+    }
   }
 }
 

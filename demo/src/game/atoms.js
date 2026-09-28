@@ -12,7 +12,6 @@ const ONCE_ON_TICK = new Set(['mark', 'push', 'launch', 'root', 'stun', 'fear', 
 export function applyToEnemy(ctx, atom, target) {
   const { world, caster, ess } = ctx;
   const p = atom.raw ? { ...atomParams(atom), ...atom.raw } : atomParams(atom);
-  const fx = world.fx;
   const k = ctx.scale ?? 1;
   const tick = ctx.tick || 0;
   if (tick && ONCE_ON_TICK.has(atom.id)) {
@@ -27,7 +26,7 @@ export function applyToEnemy(ctx, atom, target) {
       if (tick) amt = (p.amount / Math.max(ctx.dur, 0.5)) * 1.3 * tick * k;
       if (!tick && caster.buffs.empowerHits > 0 && ctx.basic) { amt *= 1 + caster.buffs.empowerPct / 100; caster.buffs.empowerHits--; }
       target.takeDamage(Math.round(amt), caster, { ess, dir, dot: !!tick });
-      if (!tick) fx.hitSpark?.(ess, target);
+      if (!tick) world.show('hitSpark', ess, target);
       break;
     }
     case 'dot':
@@ -40,12 +39,12 @@ export function applyToEnemy(ctx, atom, target) {
       target.addStatus('mark', p.delay, { ess, src: caster, amount: p.amount * k, onEnd: () => {
         if (!target.alive) return;
         target.takeDamage(Math.round(p.amount * k), caster, { ess });
-        fx.impact(ess, target.center(), 1.0, 0.6);
+        world.show('impact', ess, target.center(), 1.0, 0.6);
       } });
       break;
     case 'execute':
       if (target.hpPct * 100 < p.threshold) {
-        fx.execute?.(ess, target);
+        world.show('execute', ess, target);
         target.takeDamage(target.hp + target.shieldHp + 1, caster, { ess });
       }
       break;
@@ -73,30 +72,32 @@ export function applyToEnemy(ctx, atom, target) {
     case 'clockStop':
       target.addStatus('timestop', p.dur, { ess, onEnd: () => {
         const dmg = target.stored; target.stored = 0;
-        if (dmg > 0 && target.alive) { target.takeDamage(dmg, caster, { ess, release: true, crit: true }); fx.impact(ess, target.center(), 1.1, 0.9); }
+        if (dmg > 0 && target.alive) { target.takeDamage(dmg, caster, { ess, release: true, crit: true }); world.show('impact', ess, target.center(), 1.1, 0.9); }
       } });
       break;
     case 'control': target.addStatus('control', p.dur, { ess, by: caster }); break;
     case 'swap': {
       const a = [caster.pos.x, caster.pos.z], b = [target.pos.x, target.pos.z];
-      fx.teleport?.(ess, caster.center()); fx.teleport?.(ess, target.center());
+      world.show('teleport', ess, caster.center()); world.show('teleport', ess, target.center());
       caster.pos.x = b[0]; caster.pos.z = b[1]; target.pos.x = a[0]; target.pos.z = a[1];
+      caster.warp++; target.warp++;
       break;
     }
     case 'exchange': {
       const a = caster.hpPct, b = target.hpPct;
       caster.hp = Math.max(1, b * caster.maxHp); target.hp = Math.max(1, a * target.maxHp);
-      fx.exchange?.(ess, caster, target);
+      world.show('exchange', ess, caster, target);
       break;
     }
     case 'steal': {
       const slot = target.powers.find(s => !s.stolen);
       if (slot) {
         slot.stolen = true;
-        const copy = { ...slot, cd: 0, borrowed: true, dna: slot.dna };
+        const copy = Object.assign(Object.create(Object.getPrototypeOf(slot)), slot, { cd: 0, charge: 1, borrowed: true, index: 3 });
         caster.powers.push(copy);
-        fx.steal?.(ess, target, caster);
-        target.addStatus('robbed', p.dur, { onEnd: () => { slot.stolen = false; caster.powers = caster.powers.filter(x => x !== copy); } });
+        world.show('steal', ess, target, caster);
+        world.events.emit('kit', { f: caster });
+        target.addStatus('robbed', p.dur, { onEnd: () => { slot.stolen = false; caster.powers = caster.powers.filter(x => x !== copy); world.events.emit('kit', { f: caster }); } });
       }
       break;
     }
@@ -113,13 +114,12 @@ export function applyToEnemy(ctx, atom, target) {
 export function applyToAlly(ctx, atom, who) {
   const { world, caster, ess } = ctx;
   const p = atomParams(atom);
-  const fx = world.fx;
   switch (atom.id) {
-    case 'heal': who.heal(ctx.tick ? (p.amount / Math.max(ctx.dur, 0.5)) * 1.3 * ctx.tick : p.amount); if (!ctx.tick) fx.healBurst?.(ess, who); break;
+    case 'heal': who.heal(ctx.tick ? (p.amount / Math.max(ctx.dur, 0.5)) * 1.3 * ctx.tick : p.amount); if (!ctx.tick) world.show('healBurst', ess, who); break;
     case 'shield': who.shieldHp = Math.max(who.shieldHp, p.amount); who.shieldT = p.dur; who.addStatus('shield', p.dur, { ess }); break;
     case 'cleanse':
       for (const s of ['slow', 'root', 'stun', 'silence', 'blind', 'confuse', 'fear', 'dot', 'mark', 'hex', 'clockSlow']) who.removeStatus(s);
-      fx.cleanse?.(ess, who);
+      world.show('cleanse', ess, who);
       break;
     case 'haste': who.addStatus('haste', ctx.tick ? 0.6 : p.dur, { pct: p.pct, ess }); break;
     case 'clockHaste': who.addStatus('clockHaste', ctx.tick ? 0.6 : p.dur, { pct: p.pct, ess }); break;
@@ -129,18 +129,20 @@ export function applyToAlly(ctx, atom, who) {
     case 'lifesteal': break; // handled when the payload's damage lands
     case 'blink': {
       const to = ctx.blinkTo || [who.pos.x + who.aimDir.x * p.dist, 0, who.pos.z + who.aimDir.y * p.dist];
-      fx.teleport?.(ess, who.center());
+      world.show('teleport', ess, who.center());
       who.pos.x = to[0]; who.pos.z = to[2];
       world.resolveCircle(who.pos, who.radius, who);
-      fx.teleport?.(ess, who.center());
+      who.warp++;
+      world.show('teleport', ess, who.center());
       break;
     }
     case 'rewind': {
       const back = Math.round(p.secs * 10);
       const h = who.history[Math.max(0, who.history.length - 1 - back)];
       if (h) {
-        fx.rewind?.(ess, who, who.history.slice(-back));
+        world.show('rewind', ess, who, who.history.slice(-back));
         who.pos.x = h.x; who.pos.z = h.z; who.hp = Math.max(who.hp, h.hp); who.facing = h.facing;
+        who.warp++;
         for (const s of who.powers) if (s.dna !== ctx.dna) s.cd = Math.max(0, s.cd - p.secs);
       }
       break;

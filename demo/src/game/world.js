@@ -34,12 +34,17 @@ export class World {
     this.camera.fov = 38;
     this.camera.updateProjectionMatrix();
     this.focus = null;
+    this.replica = false;     // LAN joiner: the host runs the rules, this world only shows them
+    this.net = null;          // LAN host: mirrors events and effects to the joiners
     // water cells block walking (not shots)
     if (arena?.water && !arena.waterWalls) { arena.waterWalls = true; for (const c of arena.water) arena.walls.push({ x: c.x, z: c.z, hx: 0.5, hz: 0.5, h: 0, low: true }); }
     this.bushSet = new Set((arena?.bushes || []).map(b => `${Math.round(b.x - 0.5)},${Math.round(b.z - 0.5)}`));
   }
 
   add(f) { this.fighters.push(f); return f; }
+  // An effect only the host can decide on (a hit spark, a teleport...): play it
+  // here and, on a LAN host, on every joiner's screen too.
+  show(name, ...args) { this.fx[name]?.(...args); this.net?.vfx(name, args); }
   spawn(e) { this.entities.push(e); return e; }
 
   enemiesOf(f) { return this.fighters.filter(o => o.alive && o.team !== f.team); }

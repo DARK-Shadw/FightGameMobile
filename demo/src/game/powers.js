@@ -24,8 +24,12 @@ export class PowerSlot {
     this.ess = dna.essences[0];
     this.uses = dna.drawbacks.some(d => d.id === 'limited') ? 2 : Infinity;
     this.passive = dna.trigger !== 'cast';
+    this.index = -1;             // spell button (0-2) for castable powers
+    // godly castables are ultimates: a charge meter instead of a cooldown
+    this.ult = dna.tier === 'godly' && !this.passive;
+    this.charge = 0;
   }
-  get ready() { return this.cd <= 0 && this.uses > 0 && !this.stolen; }
+  get ready() { return (this.ult ? this.charge >= 1 : this.cd <= 0) && this.uses > 0 && !this.stolen; }
 }
 
 function ctxFor(game, caster, dna, extra = {}) {
@@ -35,6 +39,7 @@ function ctxFor(game, caster, dna, extra = {}) {
 // Deliver one payload to the fighters a shape reached.
 function deliver(ctx, node, targets, where, o = {}) {
   const { world, caster } = ctx;
+  if (ctx.game.replica) return replicaDeliver(ctx, node, targets, where, o);
   const enemyAtoms = node.atoms.filter(a => whoOf(a.id) === 'enemies');
   const helpAtoms = node.atoms.filter(a => ['allies', 'self'].includes(whoOf(a.id)));
   const actx = { ...ctx, origin: o.origin || where, tick: o.tick || 0, dur: o.dur || 0, scale: o.scale ?? ctx.scale ?? 1, pushFrom: o.pushFrom, pullTo: o.pullTo };
@@ -87,6 +92,19 @@ function deliver(ctx, node, targets, where, o = {}) {
   return { dealt, kills };
 }
 
+// A LAN joiner never applies effects (the host does and sends the results),
+// but reflected shots still turn around and chained shapes still play.
+function replicaDeliver(ctx, node, targets, where, o) {
+  for (const t of targets) if (t.alive && t.statuses.reflect && ctx.projectile && !ctx.reflected) ctx.reflect?.(t);
+  const ch = node.chain;
+  if (ch && !o.tick && ch.on === 'hit' && targets.length) {
+    const perEnemy = !['bolt', 'lob', 'strike'].includes(node.carrier.id);
+    const spots = perEnemy ? targets.slice(0, 4).map(t => [t.pos.x, 0, t.pos.z]) : [where];
+    spots.forEach((s, i) => setTimeout0(ctx, 0.05 + i * 0.05, () => spawnChild(ctx, ch, s, o.dir)));
+  }
+  return { dealt: 0, kills: [] };
+}
+
 function setTimeout0(ctx, t, fn) {
   ctx.world.spawn({ t, owner: ctx.caster, update(dt) { this.t -= dt; if (this.t <= 0) { fn(); return false; } return true; } });
 }
@@ -98,14 +116,15 @@ function spawnChild(ctx, ch, at, dir) {
 }
 
 // ── Main entry ─────────────────────────────────────────────────────────
-export function castPower(game, caster, slot, aim) {
+// o.replay: a LAN joiner re-playing a cast the host already checked and aimed.
+export function castPower(game, caster, slot, aim, o = {}) {
   const dna = slot.dna;
-  if (!slot.ready || !caster.canAct()) return false;
+  if (!o.replay && (!slot.ready || !caster.canAct())) return false;
   const world = game.world;
   const ctx = ctxFor(game, caster, dna);
   const c = dna.root.carrier.id;
   let dir = norm(aim.dir[0], aim.dir[2]);
-  if (dna.drawbacks.some(d => d.id === 'wobble')) dir = rot(dir, (Math.random() - 0.5) * 0.9);
+  if (!o.replay && dna.drawbacks.some(d => d.id === 'wobble')) dir = rot(dir, (Math.random() - 0.5) * 0.9);
   const range = cp(dna.root.carrier).range ?? 9;
   let point = aim.point ? aim.point.slice() : [caster.pos.x + dir[0] * range * 0.8, 0, caster.pos.z + dir[2] * range * 0.8];
   const dx = point[0] - caster.pos.x, dz = point[2] - caster.pos.z, dl = Math.hypot(dx, dz);
@@ -116,9 +135,11 @@ export function castPower(game, caster, slot, aim) {
   const windup = Math.max(0.12, dna.stats.windup ?? 0.15);
   const law = dna.stats.law || 0;
   caster.setAction(anim, windup + 0.45, 'R');
-  slot.cd = slot.cdMax;
-  if (slot.uses !== Infinity) slot.uses--;
-  world.events.emit('cast', { caster, slot, dna, law });
+  if (!o.replay) {
+    if (slot.ult) slot.charge = 0; else slot.cd = slot.cdMax;
+    if (slot.uses !== Infinity) slot.uses--;
+  }
+  world.events.emit('cast', { caster, slot, dna, law, dir, point, replay: !!o.replay });
   // telegraph during the windup for law-breaking powers
   if (law > 0) world.fx.lawWindup?.(ctx.ess, caster, windup, law);
   world.fx.charge?.(ctx.ess, caster, windup);
@@ -134,7 +155,7 @@ export function castPower(game, caster, slot, aim) {
       const at = { pos: [caster.pos.x, 0, caster.pos.z], dir, point };
       for (let i = 1; i <= ep.count; i++) setTimeout0(ctx, ep.delay * i, () => { world.fx.echo?.(ctx.ess, at.pos); runNode({ ...ctx, hitOnce: new Set(), echo: true }, dna.root, [at.pos[0], 0.9, at.pos[2]], at.dir, at.point, true, at.pos); });
     }
-    applyDrawbacks(game, caster, slot);
+    if (!o.replay) applyDrawbacks(game, caster, slot);
   });
   return true;
 }
@@ -726,7 +747,7 @@ const FORM_ATTACK = {
   void:   { c: 'bolt', p: { range: 8, size: 0.55, speed: 20 }, extra: [{ id: 'silence', raw: { dur: 1 } }], k: 0.8 },
 };
 
-function formAttack(game, caster, dir) {
+function formAttack(game, caster, dir, o = {}) {
   const ess = caster.form.ess;
   const F = FORM_ATTACK[ess] || FORM_ATTACK.fire;
   const node = {
@@ -737,7 +758,7 @@ function formAttack(game, caster, dir) {
   };
   if (F.lifesteal) node.atoms.push({ id: 'lifesteal', s: {}, raw: { pct: F.lifesteal } });
   const ctx = ctxFor(game, caster, { essences: [ess], root: node }, { basic: true });
-  caster.ammo--;
+  if (!o.replay) caster.ammo--;
   caster.attackCd = 0.42;
   caster.setAction(F.c === 'bolt' ? 'cast' : 'punch', 0.45, 'R');
   const d = norm(dir[0], dir[2]);
@@ -752,10 +773,10 @@ function formAttack(game, caster, dir) {
 }
 
 // Basic attack: a quick rune bolt from the gauntlet (or an imbued strike).
-export function basicAttack(game, caster, dir) {
-  if (!caster.canAct() || caster.ammo <= 0 || caster.attackCd > 0 || caster.channeling) return false;
-  if (caster.form) return formAttack(game, caster, dir);
-  caster.ammo--;
+export function basicAttack(game, caster, dir, o = {}) {
+  if (!o.replay && (!caster.canAct() || caster.ammo <= 0 || caster.attackCd > 0 || caster.channeling)) return false;
+  if (caster.form) return formAttack(game, caster, dir, o);
+  if (!o.replay) caster.ammo--;
   caster.attackCd = 0.38;
   caster.setAction('punch', 0.4, 'R');
   caster.aimDir.set(dir[0], dir[2]);

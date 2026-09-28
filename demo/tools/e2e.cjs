@@ -1,6 +1,6 @@
 // End-to-end check of the built page: boots it like a player would (title,
-// play, draft, pick, fight) and saves a screenshot of each step.
-//   node tools/e2e.cjs [dist/skill-forge-arena.html] [--w 1280 --h 720] [--fight 6] [--touch 1]
+// play, first level-up, forge a spell, fight) and saves a screenshot of each step.
+//   node tools/e2e.cjs [dist/skill-forge-arena.html] [--w 1280 --h 720] [--fight 6] [--touch 1] [--level 2]
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -29,30 +29,36 @@ const file = args[0] && !args[0].startsWith('--') ? args[0] : 'dist/skill-forge-
   await page.addInitScript(() => { window.__minFrame = 700; });
   const shot = async name => { await page.screenshot({ path: `shots/e2e-${name}.png` }); console.log('shot', name); };
   const t0 = Date.now();
-  await page.goto(`http://127.0.0.1:${port}/demo/dist/_e2e.html`);
+  await page.goto(`http://127.0.0.1:${port}/demo/dist/_e2e.html?level=${opt('level', 2)}`);
   await page.waitForTimeout(1500);
   await shot('1-boot');
-  await page.waitForSelector('.draft .btn', { timeout: 180000 });
+  await page.waitForSelector('.menu-screen .btn.solo', { timeout: 180000 });
   console.log('loaded in', Date.now() - t0, 'ms');
   await page.waitForTimeout(800);
   await shot('2-title');
-  await page.click('.draft .btn');
-  await page.waitForSelector('.card.open', { timeout: 20000 });
-  await page.waitForTimeout(3500);
-  await shot('3-draft');
-  await page.click('.card:nth-child(3)');
-  await page.waitForTimeout(3000);
-  await shot('4-fight-start');
+  await page.click('.menu-screen .btn.solo');
+  // ?level=2 in the URL hands you your first level-up right away
+  await page.waitForSelector('.picker .mini', { timeout: 30000 });
+  await page.waitForTimeout(2500);
+  await shot('3-levelup');
+  await page.click('.picker .mini:nth-child(2)');
+  await page.waitForTimeout(1500);
+  await shot('4-card-detail');
+  await page.click('.picker .mini.sel');
+  await page.waitForFunction(() => !document.querySelector('.picker .mini'), null, { timeout: 10000 });
+  await page.waitForTimeout(1500);
+  await shot('5-forged');
   // fight: hold attack toward the enemies for a while
   const secs = Number(opt('fight', 6));
   const cx = Number(opt('w', 1280)) / 2, cy = Number(opt('h', 720)) / 2;
   if (!touch) {
     await page.mouse.move(cx, cy - 200);
     await page.keyboard.down('w');
-    for (let i = 0; i < secs * 2; i++) { await page.mouse.down(); await page.waitForTimeout(250); await page.mouse.up(); await page.waitForTimeout(250); if (i === 3) await page.keyboard.press('q'); }
+    for (let i = 0; i < secs * 2; i++) { await page.mouse.down(); await page.waitForTimeout(250); await page.mouse.up(); await page.waitForTimeout(250); if (i === 3) await page.keyboard.press('q');
+      if (i === 6) await page.keyboard.press('e'); }
     await page.keyboard.up('w');
   } else await page.waitForTimeout(secs * 1000);
-  await shot('5-fight');
+  await shot('6-fight');
   console.log(logs.slice(0, 20).join('\n') || 'no errors');
   await browser.close();
   server.close();

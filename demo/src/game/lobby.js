@@ -1,4 +1,4 @@
-// Lobby stage shown behind the title and draft screens: the six brawlers on
+// Lobby stage shown behind the title, party and results screens: the six brawlers on
 // team-colored pedestals, idling, framed like a character select. The
 // fighters' own models are borrowed from the arena and handed back when the
 // round starts.

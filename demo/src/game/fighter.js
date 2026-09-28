@@ -17,7 +17,8 @@ let SERIAL = 0;
 
 export class Fighter {
   constructor(world, o) {
-    this.id = SERIAL++;
+    this.id = o.id ?? SERIAL++;
+    if (this.id >= SERIAL) SERIAL = this.id + 1;
     this.world = world;
     this.team = o.team;
     this.name = o.name || 'Brawler';
@@ -62,6 +63,12 @@ export class Fighter {
     this.inBush = false;
     this.kills = 0;
     this.essence = o.essence || 'time';
+    // LAN play: a puppet (on a joiner's page) is moved by the host's snapshots;
+    // a remote fighter (on the host) is moved by its player's page. Neither
+    // integrates its own movement. `warp` counts teleports the host forced.
+    this.puppet = false;
+    this.remote = false;
+    this.warp = 0;
     // every material that makes up the brawler (body + face decals) for flash, tint, ghost...
     this.lookMats = [];
     this.looks = [];
@@ -124,6 +131,7 @@ export class Fighter {
   // ── damage and healing ───────────────────────────────────────────────
   takeDamage(amount, src, o = {}) {
     if (!this.alive || amount <= 0) return 0;
+    if (this.world.replica) return 0; // a LAN joiner only shows the host's damage (showDamage)
     if (this.statuses.timestop && !o.release) { this.stored += amount; this.world.events.emit('stored', { target: this, amount }); return 0; }
     if (this.statuses.link && this.statuses.link.to?.alive && !o.linked) {
       const share = Math.round(amount * this.statuses.link.pct / 100);
@@ -137,13 +145,7 @@ export class Fighter {
       if (this.shieldHp <= 0) this.removeStatus('shield');
     }
     this.hp -= dmg;
-    this.lastHurt = 0;
-    this.flashV = Math.max(this.flashV, o.dot ? 0.3 : 0.85);
-    this.world.events.emit('damage', { target: this, amount: Math.round(amount), src, ess: o.ess, crit: o.crit, dot: o.dot });
-    if (!o.dot && !this.statuses.timestop) {
-      this.hitT = 0.3;
-      if (!this.action || this.action.kind === 'hit') this.setAction('hit', 0.35, o.dir ? (o.dir[0] > 0 ? 'L' : 'R') : 'R');
-    }
+    this.showDamage(amount, src, o);
     if (src && src !== this && src.alive && src.buffs.lifesteal > 0) src.heal(amount * src.buffs.lifesteal, { quiet: true });
     if (this.hp <= 0) {
       if (this.passiveHook?.('onDeath')) return amount;
@@ -153,14 +155,27 @@ export class Fighter {
     return amount;
   }
 
+  // The visible side of a hit: flash, flinch and the event the HUD and sounds use.
+  showDamage(amount, src, o = {}) {
+    this.lastHurt = 0;
+    this.flashV = Math.max(this.flashV, o.dot ? 0.3 : 0.85);
+    this.world.events.emit('damage', { target: this, amount: Math.round(amount), src, ess: o.ess, crit: o.crit, dot: o.dot });
+    if (!o.dot && !this.statuses.timestop) {
+      this.hitT = 0.3;
+      if (!this.action || this.action.kind === 'hit') this.setAction('hit', 0.35, o.dir ? (o.dir[0] > 0 ? 'L' : 'R') : 'R');
+    }
+  }
+
   heal(amount, o = {}) {
     if (!this.alive || amount <= 0) return;
+    if (this.world.replica && !o.net) return;
     const before = this.hp;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     if (!o.quiet || this.hp - before > 20) this.world.events.emit('heal', { target: this, amount: Math.round(this.hp - before) });
   }
 
-  die(src) {
+  die(src, o = {}) {
+    if (this.world.replica && !o.net) return;
     this.alive = false;
     this.hp = 0;
     this.deadT = 0;
@@ -185,8 +200,10 @@ export class Fighter {
     this.anim.s.action = this.action;
   }
 
-  knock(dx, dz, strength) {
+  knock(dx, dz, strength, net = false) {
     if (this.steady) return;
+    if (this.world.replica && !net) return;
+    if (this.remote) { this.world.net?.knock(this, dx, dz, strength); return; } // its own page moves it
     const l = Math.hypot(dx, dz) || 1;
     this.push.x += dx / l * strength;
     this.push.z += dz / l * strength;
@@ -225,7 +242,7 @@ export class Fighter {
     }
 
     this.lastHurt += dt;
-    if (this.lastHurt > 3.5 && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.12 * dt);
+    if (this.lastHurt > 3.5 && this.hp < this.maxHp && !this.world.replica) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.12 * dt);
     this.attackCd = Math.max(0, this.attackCd - ldt);
     if (this.ammo < this.ammoMax) {
       this.reloadT += ldt;
@@ -233,8 +250,9 @@ export class Fighter {
     }
     for (const p of this.powers) { if (p.cd > 0) p.cd = Math.max(0, p.cd - ldt); }
 
-    // movement
-    let mx = this.moveInput.x, mz = this.moveInput.y;
+    // movement (a driven fighter's position, velocity and facing are set by the LAN session)
+    const driven = this.puppet || this.remote;
+    let mx = driven ? 0 : this.moveInput.x, mz = driven ? 0 : this.moveInput.y;
     if (this.statuses.fear) { const f = this.statuses.fear; mx = this.pos.x - f.from[0]; mz = this.pos.z - f.from[2]; const l = Math.hypot(mx, mz) || 1; mx /= l; mz /= l; }
     if (this.statuses.confuse) { mx = -mx; mz = -mz; }
     let spd = this.speed * this.buffs.speed;
@@ -243,7 +261,8 @@ export class Fighter {
     if (this.statuses.hex) spd *= 0.6;
     if (!this.canMove() && !this.statuses.fear) { mx = 0; mz = 0; }
     const ml = Math.min(1, Math.hypot(mx, mz));
-    if (ml > 0.01) {
+    if (driven) { /* velocity comes from the network */ }
+    else if (ml > 0.01) {
       const l = Math.hypot(mx, mz);
       this.vel.x = mx / l * spd * ml; this.vel.z = mz / l * spd * ml;
     } else { this.vel.x *= Math.max(0, 1 - ldt * 14); this.vel.z *= Math.max(0, 1 - ldt * 14); }
@@ -251,14 +270,16 @@ export class Fighter {
       const d = this.dashing;
       d.t += ldt;
       const k = Math.min(1, d.t / d.dur);
-      this.vel.set(d.dir[0] * d.speed, 0, d.dir[2] * d.speed);
+      if (!driven) this.vel.set(d.dir[0] * d.speed, 0, d.dir[2] * d.speed);
       if (k >= 1) { this.dashing = null; d.onEnd?.(); }
       else d.onStep?.(ldt);
     }
-    this.pos.x += (this.vel.x + this.push.x) * ldt;
-    this.pos.z += (this.vel.z + this.push.z) * ldt;
-    this.push.multiplyScalar(Math.max(0, 1 - ldt * 7));
-    w.resolveCircle(this.pos, this.radius, this);
+    if (!driven) {
+      this.pos.x += (this.vel.x + this.push.x) * ldt;
+      this.pos.z += (this.vel.z + this.push.z) * ldt;
+      this.push.multiplyScalar(Math.max(0, 1 - ldt * 7));
+      w.resolveCircle(this.pos, this.radius, this);
+    }
 
     // airborne (launch / leap) height
     let y = 0;
@@ -267,8 +288,10 @@ export class Fighter {
       const L = this.leap;
       L.t += ldt;
       const k = Math.min(1, L.t / L.dur);
-      this.pos.x = L.from[0] + (L.to[0] - L.from[0]) * k;
-      this.pos.z = L.from[2] + (L.to[2] - L.from[2]) * k;
+      if (!driven) {
+        this.pos.x = L.from[0] + (L.to[0] - L.from[0]) * k;
+        this.pos.z = L.from[2] + (L.to[2] - L.from[2]) * k;
+      }
       y = Math.sin(k * Math.PI) * L.height;
       this.anim.s.airborne = Math.sin(k * Math.PI);
       if (k >= 1) { this.leap = null; this.anim.s.airborne = 0; this.anim.kick(0.5); L.onLand?.(); }
@@ -279,7 +302,7 @@ export class Fighter {
     let targetFacing = this.facing;
     if (this.action && this.action.kind !== 'hit') targetFacing = Math.atan2(this.aimDir.x, this.aimDir.y);
     else if (Math.hypot(this.vel.x, this.vel.z) > 0.3) targetFacing = Math.atan2(this.vel.x, this.vel.z);
-    if (!this.statuses.timestop) this.facing = angleLerp(this.facing, targetFacing, Math.min(1, ldt * 16));
+    if (!this.statuses.timestop && !driven) this.facing = angleLerp(this.facing, targetFacing, Math.min(1, ldt * 16));
 
     // animation state
     const a = this.anim.s;
