@@ -71,6 +71,7 @@ export class World {
   resolveCircle(p, r, who) {
     for (const w of this.allWalls()) {
       if (w.passable?.(who)) continue;
+      if (who?.flying && !w.passable) continue; // flying forms cross walls and water
       const dx = p.x - w.x, dz = p.z - w.z;
       const px = w.hx + r - Math.abs(dx), pz = w.hz + r - Math.abs(dz);
       if (px > 0 && pz > 0) {

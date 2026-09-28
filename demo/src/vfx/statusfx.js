@@ -119,8 +119,9 @@ class StatusRig {
       if (u.transparent !== ghosting) { u.transparent = ghosting; u.needsUpdate = true; }
     }
     if (f.model.outline) f.model.outline.visible = !ghosting;
-    f.model.group.visible = see && !this.critter;
+    f.model.group.visible = see && !this.critter && !f.form?.model;
     if (this.critter) this.critter.group.visible = see;
+    if (f.form?.model) f.form.model.model.group.visible = see && !this.critter;
     if (!see) f.blob.visible = false;
     if (tint) {
       this.tintCol.set(tint);

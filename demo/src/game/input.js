@@ -209,7 +209,7 @@ export class PlayerInput {
 
   fire(which, aim) {
     const f = this.player;
-    if (!f.alive || this.game.paused) return;
+    if (!f.alive || this.game.paused || this.game.over) return;
     aim = aim || this.autoAim(which);
     if (which < 0) { this.game.attack(f, aim.dir); return; }
     const slot = this.slotOf(which);
@@ -244,7 +244,8 @@ export class PlayerInput {
     }
     const ml = Math.hypot(mx, mz);
     if (ml > 1) { mx /= ml; mz /= ml; }
-    f.moveInput.set(this.enabled ? mx : 0, this.enabled ? mz : 0);
+    const on = this.enabled && !this.game.over;
+    f.moveInput.set(on ? mx : 0, on ? mz : 0);
     // aim direction follows the cursor on desktop
     if (this.mouse.inside && !this.touchMode && f.alive) {
       const d = [this.mouse.ground.x - f.pos.x, this.mouse.ground.z - f.pos.z], l = Math.hypot(d[0], d[1]);

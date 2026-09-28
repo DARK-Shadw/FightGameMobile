@@ -53,7 +53,19 @@ export const DRAFT_CSS = `
 .draft .vs { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%) rotate(-6deg); font-size: clamp(34px, 7vh, 64px); color: #ffe14a; pointer-events: none; }
 .draft.title .top { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .draft .btn { font-family: inherit; font-size: 22px; color: #fff; padding: 10px 34px 13px; border-radius: 14px; border: 4px solid #1a0f2e; background: linear-gradient(#ffd23f, #ff9a1a); box-shadow: 0 6px 0 rgba(0,0,0,.35), inset 0 -6px 0 rgba(0,0,0,.18); cursor: pointer; }
-@media (max-height: 520px) { .card { aspect-ratio: 0.9; } .card .emb { width: 26%; margin: 4% auto 2%; } .card .tx { font-size: 10.5px; } }
+@media (max-height: 520px) {
+  .draft { gap: 6px; }
+  .draft h1 { font-size: clamp(20px, 7vh, 34px); }
+  .draft h2 { font-size: 12px; margin: 0; }
+  .card { aspect-ratio: auto; height: calc(100vh - 96px); max-height: 330px; }
+  .card .emb { width: 18%; margin: 6px auto 3px; }
+  .card .nm { font-size: 16px; }
+  .card .ep { display: none; }
+  .card .ess { margin: 3px 0 2px; }
+  .card .tx { font-size: 10.5px; line-height: 1.28; }
+  .card .ft { padding: 3px 10px 5px; }
+  .draft.title h2 { display: none; }
+}
 @media (max-width: 640px) and (orientation: portrait) { .draft .row { flex-direction: column; align-items: center; } .card { width: min(88vw, 340px); max-width: none; flex: none; aspect-ratio: 1.45; } .card .face { display: grid; grid-template-columns: 34% 1fr; grid-template-rows: auto auto auto auto 1fr auto; } .card .rib, .card .ft { grid-column: 1 / -1; } .card .emb { grid-row: 2 / 6; width: 80%; margin: 12px auto; } .card .tx { grid-column: 2; } }
 `;
 
@@ -97,9 +109,13 @@ export function cardHTML(s, kind = '') {
     </div>`;
 }
 
+// Attract/QA mode: menus pick for themselves after a moment.
+export const AUTO = { on: false, delay: 2500 };
+
 // options: [{ skill, kind }] → Promise<index>
 export function draftPowers(root, title, subtitle, options, drawIcon) {
   return new Promise(resolve => {
+    if (AUTO.on) setTimeout(() => root.querySelector('.draft .card.open')?.click(), AUTO.delay + 2200);
     const el = document.createElement('div');
     el.className = 'draft';
     el.innerHTML = `<h1 class="ol">${title}</h1><h2>${subtitle}</h2><div class="row"></div>`;
@@ -144,6 +160,7 @@ export function draftPowers(root, title, subtitle, options, drawIcon) {
 
 export function draftStats(root, title, options) {
   return new Promise(resolve => {
+    if (AUTO.on) setTimeout(() => root.querySelector('.draft .stat')?.click(), AUTO.delay);
     const el = document.createElement('div');
     el.className = 'draft';
     el.innerHTML = `<h1 class="ol">${title}</h1><h2>Pick an upgrade</h2><div class="stats"></div>`;
@@ -161,6 +178,7 @@ export function draftStats(root, title, options) {
 
 export function splash(root, html, btn = 'PLAY', cls = '', below = '') {
   return new Promise(resolve => {
+    if (AUTO.on) setTimeout(() => root.querySelector('.draft .btn')?.click(), AUTO.delay);
     const el = document.createElement('div');
     el.className = 'draft ' + cls;
     el.innerHTML = `<div class="top">${html}</div><div class="top">${below}${btn ? `<button class="btn ol" type="button">${btn}</button>` : ''}</div>`;

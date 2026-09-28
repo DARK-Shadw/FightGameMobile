@@ -11,7 +11,7 @@ import { Game } from './game/game.js';
 import { HUD, HUD_CSS, iconCanvas } from './game/hud.js';
 import { PlayerInput } from './game/input.js';
 import { BotBrain } from './game/bot.js';
-import { draftPowers, draftStats, rollStats, splash, DRAFT_CSS } from './game/draft.js';
+import { draftPowers, draftStats, rollStats, splash, DRAFT_CSS, AUTO } from './game/draft.js';
 import { HEROES } from './art/heroes.js';
 import { SFX, attachSfx } from './game/sfx.js';
 import { Lobby } from './game/lobby.js';
@@ -20,6 +20,7 @@ import { present } from '../../prototypes/skill-forge/describe.js';
 
 const params = new URLSearchParams(location.search);
 const LAB = params.has('lab');
+AUTO.on = params.has('auto') && params.has('rounds');
 const css = document.createElement('style');
 css.textContent = HUD_CSS + DRAFT_CSS;
 document.head.appendChild(css);
@@ -179,7 +180,7 @@ async function main() {
     botsDraft(1);
     for (;;) {
       await fight(game, hud, ui);
-      if (LAB) return;
+      if (LAB && !(params.get('rounds') > game.round)) return;
       game.round++;
       for (const s2 of game.summons.slice()) if (s2.alive) s2.die(null);
       for (const f of game.brawlers) f.clearStatuses();
@@ -290,12 +291,17 @@ async function fight(game, hud, ui) {
     check();
   });
   game.fighting = false;
+  // the round ends in slow motion; nobody acts while the banner is up
+  game.over = true;
+  game.world.timeScale = 0.3;
   const won = game.score[game.world.playerTeam] > game.score[1 - game.world.playerTeam];
   const draw = game.score[0] === game.score[1];
   game.sfx?.ui(won ? 'win' : 'lose');
   hud.banner(draw ? 'TIME!' : won ? 'VICTORY' : 'DEFEAT', draw ? 'DRAW' : won ? 'Round won!' : 'Round lost', 'Level up and forge another power', draw ? '' : won ? '' : '');
   await new Promise(r => setTimeout(r, 2200));
   game.paused = true;
+  game.over = false;
+  game.world.timeScale = 1;
 }
 
 // Team rings under brawlers (blue = your team, red = rivals).

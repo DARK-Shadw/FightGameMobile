@@ -44,7 +44,7 @@ export class BotBrain {
 
   update(dt) {
     const f = this.f, g = this.game, w = g.world;
-    if (!f.alive || g.paused || g.frozenInput) { f.moveInput.set(0, 0); return; }
+    if (!f.alive || g.paused || g.over) { f.moveInput.set(0, 0); return; }
     this.thinkT -= dt; this.strafeT -= dt; this.powerT -= dt;
     if (this.thinkT <= 0) {
       this.thinkT = 0.25 + Math.random() * 0.25;

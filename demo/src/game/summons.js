@@ -272,6 +272,12 @@ export function transformInto(game, who, ess, dur, bonus) {
     who.setLook('uTintAmount', 0.35);
   }
   who.form = form;
+  // perks from the form's description
+  form.perks = { flying: ['fire', 'gale', 'shadow', 'space'].includes(ess), steady: ess === 'stone', speed: ess === 'beast' ? 1.3 : 1, leech: ess === 'blood' ? 0.25 : 0 };
+  who.flying = form.perks.flying;
+  who.steady = form.perks.steady;
+  who.buffs.speed *= form.perks.speed;
+  who.buffs.lifesteal += form.perks.leech;
   who.addStatus('form', dur, { ess, onEnd: () => endForm(game, who) });
   fx.selfBurst?.(ess, who, 1.6);
   fx.push(L.pillar(w.scene, { pos: [who.pos.x, 0, who.pos.z], color: st.color, core: st.core, radius: 1.3, height: 9, dur: 0.7 }));
@@ -282,6 +288,8 @@ export function transformInto(game, who, ess, dur, bonus) {
   const aura = { t: 0, update(dt) {
     if (who.form !== form || !who.alive) return false;
     this.t += dt;
+    if (ess === 'life') who.heal(who.maxHp * 0.03 * dt, { quiet: true });
+    if (ess === 'time') for (const p of who.powers) if (p.cd > 0) p.cd = Math.max(0, p.cd - dt);
     if (Math.random() < dt * 30) fx.motif(ess, 'trail', [who.pos.x + (Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 1.4, who.pos.z + (Math.random() - 0.5) * 0.8], 0.55, 0, [0, -1, 0]);
     if (form.model) {
       form.model.model.group.rotation.y = who.facing;
@@ -298,6 +306,10 @@ export function endForm(game, who, quiet = false) {
   const form = who.form;
   if (!form) return;
   who.form = null;
+  who.flying = false;
+  who.steady = false;
+  who.buffs.speed /= form.perks?.speed ?? 1;
+  who.buffs.lifesteal -= form.perks?.leech ?? 0;
   who.maxHp -= form.hpBoost;
   who.hp = Math.min(who.hp, who.maxHp);
   who.buffs.dmg /= 1 + form.bonus / 100;

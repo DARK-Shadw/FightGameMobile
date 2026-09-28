@@ -7,8 +7,8 @@ import { applyToEnemy, applyToAlly, atomParams } from './atoms.js';
 import * as L from '../vfx/fxlib.js';
 import { STYLE } from '../vfx/styles.js';
 
-const cp = h => paramValues(h, CARRIERS[h.id].p);
-const mp = h => paramValues(h, MODS[h.id].p);
+const cp = h => (h.raw ? { ...paramValues(h, CARRIERS[h.id].p), ...h.raw } : paramValues(h, CARRIERS[h.id].p));
+const mp = h => (h.raw ? { ...paramValues(h, MODS[h.id].p), ...h.raw } : paramValues(h, MODS[h.id].p));
 const whoOf = id => ATOMS[id].who;
 const AREA = new Set(['nova', 'aura', 'zone', 'global', 'lob', 'strike', 'leap', 'cone']);
 const TICK = new Set(['zone', 'aura', 'beam', 'wall', 'tether', 'global']);
@@ -705,9 +705,56 @@ export function shootBolt(game, caster, ess, dir, dmg, size = 0.4, o = {}) {
   spawnBolt(ctx, node, h, norm(dir[0], dir[2]), { range: o.range ?? 7.5, size, speed: o.speed ?? 16 }, o.mods || {});
 }
 
+// Transformed brawlers attack the way their form does (the card's promise:
+// dragons breathe fire, colossi slam, seraphs throw piercing lances...).
+const FORM_ATTACK = {
+  fire:   { c: 'cone', p: { length: 4.5, angle: 55 }, extra: [{ id: 'dot', raw: { dps: 70, dur: 2 } }], k: 0.75 },
+  frost:  { c: 'bolt', p: { range: 7.5, size: 0.5, speed: 18 }, mods: [{ id: 'volley', raw: { count: 3 } }], extra: [{ id: 'slow', raw: { pct: 30, dur: 1.5 } }], k: 0.5 },
+  storm:  { c: 'bolt', p: { range: 8, size: 0.45, speed: 22 }, mods: [{ id: 'bounce', raw: { count: 3 } }], k: 0.8 },
+  stone:  { c: 'nova', p: { radius: 2.1 }, ahead: 1.6, extra: [{ id: 'push', raw: { dist: 2 } }], k: 1 },
+  tide:   { c: 'cone', p: { length: 4.2, angle: 75 }, extra: [{ id: 'push', raw: { dist: 2.5 } }], k: 0.8 },
+  gale:   { c: 'bolt', p: { range: 8, size: 0.6, speed: 18 }, extra: [{ id: 'launch', raw: { dur: 0.5 } }], k: 0.75 },
+  light:  { c: 'bolt', p: { range: 10, size: 0.9, speed: 26 }, mods: [{ id: 'pierce', raw: {} }], k: 0.95 },
+  shadow: { c: 'cone', p: { length: 2, angle: 120 }, lifesteal: 30, k: 1.1 },
+  life:   { c: 'bolt', p: { range: 7.5, size: 0.5, speed: 17 }, extra: [{ id: 'root', raw: { dur: 0.6 } }], k: 0.75 },
+  death:  { c: 'bolt', p: { range: 8, size: 0.55, speed: 16 }, extra: [{ id: 'dot', raw: { dps: 80, dur: 2.5 } }], k: 0.6 },
+  blood:  { c: 'cone', p: { length: 2, angle: 120 }, lifesteal: 40, k: 1.1 },
+  mind:   { c: 'bolt', p: { range: 8, size: 0.55, speed: 18 }, extra: [{ id: 'confuse', raw: { dur: 1 } }], k: 0.75 },
+  time:   { c: 'bolt', p: { range: 8, size: 0.5, speed: 18 }, extra: [{ id: 'mark', raw: { delay: 1, amount: 120 } }], k: 0.7 },
+  space:  { c: 'bolt', p: { range: 8, size: 0.55, speed: 20 }, extra: [{ id: 'pull', raw: { dist: 2 } }], k: 0.85 },
+  beast:  { c: 'cone', p: { length: 2, angle: 120 }, extra: [{ id: 'dot', raw: { dps: 60, dur: 2 } }], k: 1.1 },
+  void:   { c: 'bolt', p: { range: 8, size: 0.55, speed: 20 }, extra: [{ id: 'silence', raw: { dur: 1 } }], k: 0.8 },
+};
+
+function formAttack(game, caster, dir) {
+  const ess = caster.form.ess;
+  const F = FORM_ATTACK[ess] || FORM_ATTACK.fire;
+  const node = {
+    carrier: { id: F.c, s: {}, raw: F.p },
+    mods: (F.mods || []).map(m => ({ ...m, s: {} })),
+    atoms: [{ id: 'damage', s: {}, raw: { amount: Math.round((caster.basicDamage ?? 260) * F.k) } }, ...(F.extra || []).map(a => ({ ...a, s: {} }))],
+    chain: null,
+  };
+  if (F.lifesteal) node.atoms.push({ id: 'lifesteal', s: {}, raw: { pct: F.lifesteal } });
+  const ctx = ctxFor(game, caster, { essences: [ess], root: node }, { basic: true });
+  caster.ammo--;
+  caster.attackCd = 0.42;
+  caster.setAction(F.c === 'bolt' ? 'cast' : 'punch', 0.45, 'R');
+  const d = norm(dir[0], dir[2]);
+  caster.aimDir.set(d[0], d[2]);
+  setTimeout0(ctx, 0.1, () => {
+    if (!caster.alive) return;
+    const ahead = F.ahead ?? 0;
+    const at = [caster.pos.x + d[0] * ahead, 0.9, caster.pos.z + d[2] * ahead];
+    runNode(ctx, node, F.c === 'bolt' ? caster.handPos() : at, d, at, false, [caster.pos.x, 0, caster.pos.z]);
+  });
+  return true;
+}
+
 // Basic attack: a quick rune bolt from the gauntlet (or an imbued strike).
 export function basicAttack(game, caster, dir) {
   if (!caster.canAct() || caster.ammo <= 0 || caster.attackCd > 0 || caster.channeling) return false;
+  if (caster.form) return formAttack(game, caster, dir);
   caster.ammo--;
   caster.attackCd = 0.38;
   caster.setAction('punch', 0.4, 'R');

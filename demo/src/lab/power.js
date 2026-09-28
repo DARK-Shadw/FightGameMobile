@@ -39,6 +39,7 @@ export async function setup(stage, params) {
   const buildMs = performance.now() - t0;
   const at = Number(params.get('at') ?? 0.4), gap = Number(params.get('gap') ?? 2.5);
   const move = params.get('move') === '1';
+  const atk = Number(params.get('atk') || 0); // start basic attacks at this time
   const log = [];
   game.world.events.on('damage', e => log.push(Math.round(e.amount)));
   let t = 0, next = 0;
@@ -55,6 +56,7 @@ export async function setup(stage, params) {
         next++;
       }
       if (move) dummies.forEach((d, i) => d.moveInput.set(Math.sin(t * 1.3 + i * 2), 0));
+      if (atk && t > atk && dummies[0]) { player.ammo = 3; player.attackCd = Math.min(player.attackCd, 0); if ((t * 2) % 1 < dt * 2) game.attack(player, game.aimAt(player, dummies[0]).dir); }
       game.update(dt);
     },
     info: () => `fx=${game.world.fx.effects.length} [${game.world.fx.effects.map(e => (e.obj?.material?.uniforms?.uMode?.value ?? '-') + ':' + (e.obj?.scale?.x?.toFixed?.(2) ?? '') + '@' + (e.obj?.position?.y?.toFixed?.(2) ?? '')).join(' ')}] ts=${game.world.timeScale} build ${buildMs.toFixed(0)}ms | ` + skills.map(s => `${s.code} "${s.name}" ${s.tier} [${s.root.carrier.id}: ${s.root.atoms.map(a => a.id).join(',')}${s.root.chain ? ' -> ' + s.root.chain.on + ':' + s.root.chain.carrier.id : ''}] ${present(s).text.join(' ')}`).join(' || ') + ` | dmg: ${log.slice(0, 30).join(',')}`,

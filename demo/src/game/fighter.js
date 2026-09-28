@@ -186,6 +186,7 @@ export class Fighter {
   }
 
   knock(dx, dz, strength) {
+    if (this.steady) return;
     const l = Math.hypot(dx, dz) || 1;
     this.push.x += dx / l * strength;
     this.push.z += dz / l * strength;
