@@ -7,7 +7,10 @@ import { FX } from './fx.js';
 import * as L from './fxlib.js';
 import { STYLE, hexToRgb } from './styles.js';
 import { PUFF } from './puffs.js';
-import { toonMaterial, SHARED } from '../engine/toon.js';
+import { toonMaterial, outlineMaterial, SHARED } from '../engine/toon.js';
+import { meshSDF } from '../art/creature-mesher.js';
+import { geometryFrom } from '../engine/rig.js';
+import { rock } from '../art/props.js';
 
 const R = (a, b) => a + Math.random() * (b - a);
 
@@ -324,10 +327,17 @@ Object.assign(FX.prototype, {
     for (let i = 0; i < n; i++) {
       const k = (i / (n - 1) - 0.5) * length;
       let m;
-      if (st.motif === 'rock') {
-        m = new THREE.Mesh(this.cache.rock || new THREE.IcosahedronGeometry(0.5, 1), toonMaterial({ rim: 0.4, vertexColors: !!this.cache.rock, color: '#b89c7c' }));
-        m.scale.set(0.7, R(1.1, 1.6), 0.7);
-        m.castShadow = true;
+      if (st.motif === 'rock' || st.motif === 'claw' || st.motif === 'blood') {
+        const geo = this.cache.pillar || (this.cache.pillar = geometryFrom(meshSDF(rock(3, 1), { cell: 0.045, aoStep: 0.07 })));
+        geo.userData.shared = true;
+        m = new THREE.Group();
+        const body = new THREE.Mesh(geo, this.cache.pillarMat || (this.cache.pillarMat = toonMaterial({ rim: 0.4 })));
+        const ol = new THREE.Mesh(geo, this.cache.pillarOl || (this.cache.pillarOl = outlineMaterial({ width: 0.0018 })));
+        body.castShadow = true;
+        m.add(body, ol);
+        m.scale.set(R(0.9, 1.15), R(2.4, 3.2), R(0.9, 1.15));
+        m.rotation.y = R(0, 6.28);
+        if (st.motif !== 'rock') { const tint = st.motif === 'blood' ? '#7a1a2a' : '#8a5a3a'; body.material = toonMaterial({ rim: 0.4 }); body.material.userData.u.uTint.value.set(tint); body.material.userData.u.uTintAmount.value = 0.35; }
       } else if (st.motif === 'shard') {
         const g = new THREE.OctahedronGeometry(0.5, 0); g.scale(0.5, 1.6, 0.5);
         m = new THREE.Mesh(g, L.energyMaterial({ color: '#a8eaff', core: '#ffffff', edge: '#2a6fe0', mode: 1, fresnel: 0.5, intensity: 1.4, erode: 0, blending: 'normal' }));
@@ -346,13 +356,14 @@ Object.assign(FX.prototype, {
       pieces.push(m);
     }
     this.impact(ess, [center[0], 0.3, center[2]], length * 0.3, 0.5);
+    for (let i = 0; i < n; i += 2) this.puffs(ess, [pieces[i].position.x, 0.1, pieces[i].position.z], 2, 0.5, { color: '#d8c8a8', alpha: 0.5, up: 0.6 });
     let acc = 0;
     return live(this, dur, (dt, e) => {
       const rise = Math.min(1, e.t / 0.25), fall = Math.min(1, Math.max(0, (dur - e.t) / 0.3));
       const k = Math.min(rise, fall);
       pieces.forEach((m, i) => {
-        m.position.y = (k - 1) * 1.6;
-        m.material.uniforms?.uTime && (m.material.uniforms.uTime.value += dt);
+        m.position.y = (k - 1) * 1.8;
+        if (m.material?.uniforms?.uTime) m.material.uniforms.uTime.value += dt;
       });
       acc += dt * 12;
       while (acc > 1) { acc -= 1; const m = pieces[Math.floor(Math.random() * n)]; this.motif(ess, 'trail', [m.position.x, R(0.2, 1.3), m.position.z], 0.6, 0, [0, -1, 0]); }
@@ -362,12 +373,21 @@ Object.assign(FX.prototype, {
   tetherVisual(ess, endsFn) {
     const st = this.style(ess);
     let last = null;
-    const b = this.push(L.beam(this.scene, { ends: () => { const e = endsFn(); if (e) last = e; return last || [[0, -9, 0], [0, -9, 0.1]]; }, color: st.color, core: st.core, edge: st.edge, radius: 0.07, intensity: 2.2 }));
+    const b = this.push(L.beam(this.scene, { ends: () => { const e = endsFn(); if (e) last = e; return last || [[0, -9, 0], [0, -9, 0.1]]; }, color: st.color, core: st.glow, edge: st.edge, radius: 0.12, intensity: 1.6, blending: 'normal' }));
+    const core = this.push(L.beam(this.scene, { ends: () => last || [[0, -9, 0], [0, -9, 0.1]], color: st.core, core: '#ffffff', radius: 0.05, intensity: 2.4 }));
+    let pulse = 0;
+    const col = hexToRgb(st.glow, 2.6);
     return live(this, 0, (dt, e) => {
       const ends = endsFn();
       if (!ends) { e.kill(); return; }
+      pulse += dt;
+      if (pulse > 0.12) {
+        pulse = 0;
+        const [a, c] = ends, d = Math.hypot(c[0] - a[0], c[2] - a[2]) || 1, sp = 9;
+        this.add.spawn({ pos: [...c], vel: [(a[0] - c[0]) / d * sp, (a[1] - c[1]) / d * sp, (a[2] - c[2]) / d * sp], life: d / sp, size: [0.3, 0.2], color: { from: [...col, 1], to: [...col, 0.3] }, sprite: 'glow' });
+      }
       if (Math.random() < 0.6) { const k = Math.random(); this.motif(ess, 'trail', [ends[0][0] + (ends[1][0] - ends[0][0]) * k, ends[0][1] + (ends[1][1] - ends[0][1]) * k, ends[0][2] + (ends[1][2] - ends[0][2]) * k], 0.3); }
-    }, () => b.kill());
+    }, () => { b.kill(); core.kill(); });
   },
 
   skyFall(ess, at, r, delay) {
@@ -442,32 +462,51 @@ Object.assign(FX.prototype, {
     const u = this.stage.fx;
     u.uTint.value.set(st.color);
     const world = caster.world;
+    const vig = u.uVignette, v0 = 0.32;
     let acc = 0, strike = 0;
+    const fall = ['flame', 'shard', 'wave', 'blood', 'vine', 'rock'].includes(st.motif);
+    // the sky answers first: a pillar over the caster and a ring racing across the arena
+    this.push(L.pillar(this.scene, { pos: [caster.pos.x, 0, caster.pos.z], color: st.color, core: st.core, edge: st.edge, radius: 1.6, height: 18, dur: 0.9, intensity: 2 }));
+    this.push(L.ring(this.scene, { pos: [caster.pos.x, 0, caster.pos.z], color: st.color, core: st.glow, radius: 18, dur: 0.9, width: 0.9, blending: 'normal' }));
     const e = live(this, dur, (dt, self) => {
-      u.uTintAmount.value = 0.28 * Math.min(1, self.t * 3, (dur - self.t) * 3);
+      const k = Math.min(1, self.t * 3, (dur - self.t) * 3);
+      u.uTintAmount.value = 0.32 * k;
+      vig.value = v0 + 0.25 * k;
       const c = world.camLook;
-      acc += dt * 60;
+      acc += dt * 70;
       while (acc > 1) {
         acc -= 1;
-        const p = [c.x + R(-11, 11), R(6, 9), c.z + R(-9, 7)];
-        const fall = st.motif === 'flame' || st.motif === 'shard' || st.motif === 'wave' || st.motif === 'blood' || st.motif === 'vine' || st.motif === 'rock';
-        this.add.spawn({ pos: p, vel: fall ? [R(-1, 1), -R(6, 10), R(-1, 1)] : [R(-1, 1), R(-1, 1), R(-1, 1)], life: 1.2, size: [R(0.12, 0.3), 0.05],
-          color: { from: [...hexToRgb(st.core, 2.4), 0.9], to: [...hexToRgb(st.color, 2), 0] }, sprite: st.spark, stretch: fall ? 0.05 : 0, floor: 0.05, spin: R(-2, 2) });
+        const p = [c.x + R(-12, 12), R(6, 10), c.z + R(-10, 8)];
+        this.add.spawn({ pos: p, vel: fall ? [R(-1, 1), -R(7, 12), R(-1, 1)] : [R(-1.5, 1.5), R(-1, 1), R(-1.5, 1.5)], life: 1.2, size: [R(0.14, 0.32), 0.06],
+          color: { from: [...hexToRgb(st.core, 2.4), 0.9], to: [...hexToRgb(st.color, 2), 0] }, sprite: st.spark, stretch: fall ? 0.06 : 0, floor: 0.05, spin: R(-2, 2) });
       }
+      // strikes: on enemies and on open ground all over the view
       strike += dt;
-      if (strike > 0.3) {
+      if (strike > 0.16) {
         strike = 0;
-        const t = world.enemiesOf(caster)[Math.floor(Math.random() * world.enemiesOf(caster).length)];
-        if (t) {
-          const at = [t.pos.x + R(-1, 1), 0, t.pos.z + R(-1, 1)];
-          if (st.motif === 'lightning') this.push(L.lightning(this.scene, { ends: () => [[at[0], 11, at[2]], at], color: st.color, dur: 0.2, width: 0.15, jag: 0.8, branches: 2 }));
-          else this.push(L.ring(this.scene, { pos: at, color: st.color, core: st.core, radius: 1.4, dur: 0.5 }));
+        const foes = world.enemiesOf(caster);
+        const t = Math.random() < 0.45 && foes.length ? foes[Math.floor(Math.random() * foes.length)] : null;
+        const at = t ? [t.pos.x + R(-0.6, 0.6), 0, t.pos.z + R(-0.6, 0.6)] : [c.x + R(-10, 10), 0, c.z + R(-7, 6)];
+        if (st.motif === 'lightning') {
+          this.push(L.lightning(this.scene, { ends: () => [[at[0] + R(-1, 1), 12, at[2] + R(-1, 1)], at], color: st.color, dur: 0.22, width: 0.16, jag: 0.9, branches: 2 }));
+          this.impact(ess, [at[0], 0.3, at[2]], 0.9, 0.35);
+        } else if (st.motif === 'ray') {
+          this.push(L.pillar(this.scene, { pos: at, color: st.color, core: st.core, radius: 0.7, height: 14, dur: 0.45 }));
+          this.impact(ess, [at[0], 0.3, at[2]], 0.9, 0.35);
+        } else if (fall || st.motif === 'stars') {
+          this.skyFall(ess, at, 0.9, 0.45);
+          setTimeoutFx(this, 0.45, () => this.impact(ess, [at[0], 0.3, at[2]], 1.1, 0.45));
+        } else {
+          // eruptions from below: geysers of the essence's clouds
+          this.clouds(ess, [at[0], 0.2, at[2]], 6, 1, { lift: 2.2, speed: 0.6 });
+          this.motif(ess, 'impact', [at[0], 0.4, at[2]], 1, 0.5);
+          this.push(L.ring(this.scene, { pos: at, color: st.color, core: st.glow, radius: 1.3, dur: 0.4, width: 0.2, blending: 'normal' }));
         }
       }
-    }, () => { u.uTintAmount.value = 0; });
+    }, () => { u.uTintAmount.value = 0; vig.value = v0; });
     e.unscaled = true;
-    this.flash(st.glow, 0.35);
-    this.shake(0.6);
+    this.flash(st.glow, 0.45);
+    this.shake(0.9);
     return e;
   },
 });

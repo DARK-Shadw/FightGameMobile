@@ -542,7 +542,8 @@ function spawnTrap(ctx, node, at, p) {
 function spawnOrbitals(ctx, node, p, mods) {
   const world = ctx.world, fx = world.fx, caster = ctx.caster;
   const orbs = [];
-  for (let i = 0; i < p.count; i++) orbs.push({ a: (i / p.count) * Math.PI * 2, vis: fx.projectile(ctx.ess, 0.4), cool: new Map() });
+  for (let i = 0; i < p.count; i++) orbs.push({ a: (i / p.count) * Math.PI * 2, vis: fx.projectile(ctx.ess, 0.62), cool: new Map() });
+  fx.selfBurst?.(ctx.ess, caster, 0.7);
   let t = 0;
   world.spawn({
     owner: caster,

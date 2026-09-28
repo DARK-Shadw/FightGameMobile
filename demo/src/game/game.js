@@ -132,6 +132,13 @@ export class Game {
   onDeath(f, src) {
     this.corpses.push({ x: f.pos.x, z: f.pos.z, t: this.world.time });
     if (this.corpses.length > 12) this.corpses.shift();
+    if (f.kind === 'brawler' || f.kind === 'titan') {
+      // knockout burst: the brawler's own essence, a shockwave and a soul rising
+      const fx = this.world.fx, c = f.center();
+      fx.impact(f.essence, c, 1.3, 0.8);
+      fx.motes(f.essence, c, 20, 0.6, { sprite: 'soul', up: 2.5, size: 2 });
+      this.world.events.emit('ko', { target: f, src });
+    }
     if (f.kind === 'brawler') {
       const killer = src?.owner || src;
       if (killer && killer.team !== f.team) this.score[killer.team]++;

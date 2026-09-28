@@ -138,7 +138,7 @@ export class Fighter {
     }
     this.hp -= dmg;
     this.lastHurt = 0;
-    this.flashV = 0.85;
+    this.flashV = Math.max(this.flashV, o.dot ? 0.3 : 0.85);
     this.world.events.emit('damage', { target: this, amount: Math.round(amount), src, ess: o.ess, crit: o.crit, dot: o.dot });
     if (!o.dot && !this.statuses.timestop) {
       this.hitT = 0.3;

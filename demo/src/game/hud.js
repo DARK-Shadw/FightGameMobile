@@ -45,6 +45,7 @@ export const HUD_CSS = `
 #hud .dn.dot { font-size: 16px; opacity: .9; }
 #hud .dn.stored { color: #ffd27a; font-size: 18px; }
 #hud .dn.me { color: #ff5a6a; }
+#hud .dn.ko { font-size: 44px; color: #ffe14a; letter-spacing: 1px; }
 #hud .feed { position: absolute; right: max(10px, env(safe-area-inset-right)); top: 64px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 #hud .feed div { background: rgba(26,15,46,.72); border-radius: 8px; padding: 3px 9px; font-size: 14px; animation: feedIn .25s ease-out; }
 #hud .feed .b { color: #7ad0ff; } #hud .feed .r { color: #ff7a8a; }
@@ -179,6 +180,7 @@ export class HUD {
     ev.on('heal', e => { if (e.amount >= 20) this.number(e.target, e.amount, 'heal'); });
     ev.on('stored', e => this.number(e.target, e.amount, 'stored'));
     ev.on('death', e => this.killFeed(e));
+    ev.on('ko', e => this.number(e.target, 'KO!', 'ko'));
     this.lastCast = new Map();
     ev.on('cast', e => this.lastCast.set(e.caster, e.dna));
     ev.on('godly', e => { const d = this.lastCast.get(e.caster); this.banner(e.caster.isPlayer ? 'YOU BROKE REALITY' : `${e.caster.name.toUpperCase()} BROKE REALITY`, d?.name ?? 'Godly Power', d?.info?.epithet ?? '', 'godly', e.ess); });
@@ -207,13 +209,13 @@ export class HUD {
   }
 
   number(target, amount, kind, e = {}) {
-    if (!amount || amount < 1) return;
+    if (!amount || (typeof amount === 'number' && amount < 1)) return;
     const el = document.createElement('div');
     const me = target === this.game.player && kind !== 'heal';
     el.className = `dn ol ${kind} ${me ? 'me' : ''}`;
     el.textContent = kind === 'heal' ? '+' + amount : amount;
     this.numLayer.appendChild(el);
-    this.nums.push({ el, target, t: 0, x: (Math.random() - 0.5) * 0.7, y0: target.height + 0.2, life: kind === 'crit' ? 1.3 : kind === 'dot' ? 0.7 : 0.95, kind });
+    this.nums.push({ el, target, t: 0, x: kind === 'ko' ? 0 : (Math.random() - 0.5) * 0.7, y0: target.height + 0.2, life: kind === 'ko' ? 1.6 : kind === 'crit' ? 1.3 : kind === 'dot' ? 0.7 : 0.95, kind });
     if (this.nums.length > 40) { const n = this.nums.shift(); n.el.remove(); }
   }
 
@@ -317,7 +319,7 @@ export class HUD {
       const f = n.target;
       const [x, y] = this.project(f.pos.x + n.x, (f.y || 0) + n.y0 + k * 0.9, f.pos.z);
       const pop = n.t < 0.12 ? 0.6 + n.t / 0.12 * 0.8 : Math.max(1, 1.4 - (n.t - 0.12) * 3);
-      n.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${pop * (n.kind === 'crit' ? 1.15 : 1)})`;
+      n.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${pop * (n.kind === 'crit' || n.kind === 'ko' ? 1.15 : 1)}) rotate(${n.kind === 'ko' ? -8 : 0}deg)`;
       n.el.style.opacity = k > 0.7 ? (1 - k) / 0.3 : 1;
     }
     // scoreboard

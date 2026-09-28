@@ -170,7 +170,8 @@ export class FX {
       const up = o.flat ? R(0.05, 0.35) : R(0.2, 1);
       const sp = (smoke ? R(0.8, 1.8) : R(3.8, 7)) * radius * (o.speed ?? 1);
       const d = [Math.cos(a) * (1 - up * 0.5), up, Math.sin(a) * (1 - up * 0.5)];
-      const sz = radius * (smoke ? R(0.26, 0.4) : R(0.2, 0.34)) * (o.size ?? 1);
+      // puffs stay chunky but never balloon: big blasts spread wider instead of growing opaque blobs
+      const sz = Math.min(smoke ? 0.5 : 0.46, radius * (smoke ? R(0.26, 0.4) : R(0.2, 0.34))) * (o.size ?? 1);
       this.cloud.spawn({
         pos: [pos[0] + d[0] * radius * 0.2, Math.max(0.1, pos[1] + d[1] * radius * 0.15), pos[2] + d[2] * radius * 0.2],
         vel: [d[0] * sp, d[1] * sp * (o.lift ?? 0.7), d[2] * sp],
@@ -212,8 +213,8 @@ export class FX {
     const ground = [pos[0], 0, pos[2]];
     // hot starburst + a chunky toon cloud blast that rolls outward, then smoke
     this.flashAt(ess, p, 0.7 + radius * 0.7, 0.1 + power * 0.05);
-    this.clouds(ess, p, Math.round(7 + radius * 4 + power * 6), radius * 0.85);
-    this.clouds(ess, [p[0], 0.25, p[2]], Math.round(1 + power * 3 + radius), radius * 0.8, { kind: 'smoke' });
+    this.clouds(ess, p, Math.round(7 + Math.min(radius, 2.5) * 4 + power * 6), radius * 0.85);
+    this.clouds(ess, [p[0], 0.25, p[2]], Math.round(1 + power * 2 + Math.min(radius, 2)), Math.min(radius, 1.6) * 0.8, { kind: 'smoke' });
     this.push(L.ring(this.scene, { pos: ground, color: st.color, core: st.glow, edge: st.edge, radius: radius * 1.45, dur: 0.35 + power * 0.15, width: 0.16 + radius * 0.05, intensity: 1.6, blending: 'normal' }));
     this.push(L.glowDisc(this.scene, { pos: ground, color: st.color, radius: radius * 1.4, dur: 0.35, opacity: 0.3, intensity: 1 }));
     const n = Math.round(8 + power * 14);
@@ -242,6 +243,7 @@ export class FX {
   projectile(ess, size = 0.5, o = {}) {
     const st = this.style(ess);
     const group = new THREE.Group();
+    group.visible = false; // until its first update places it
     this.scene.add(group);
     // colored body (normal blend keeps saturation on bright ground) + small hot center
     const core = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), L.energyMaterial({ color: st.color, core: st.glow, edge: st.edge, mode: 1, fresnel: 0.35, intensity: st.dark ? 0.8 : 1.35, erode: 0, noise: 1.6, scroll: [0.8, -2], blending: 'normal' }));
@@ -253,9 +255,9 @@ export class FX {
     const special = this.motifMesh(ess, size);
     if (special) group.add(special);
     const coreScale = special?.userData.hideCore ?? 1;
-    const head = [0, 0, 0];
+    const head = o.pos ? o.pos.slice() : [0, -50, 0];
     let alive = true;
-    const trail = this.push(L.trail(this.scene, { color: st.color, core: st.glow, edge: st.edge, width: size * (st.trailW / 0.4) * 0.9, points: 16, camera: this.camera, head: () => (alive ? head : null), intensity: st.dark ? 0.9 : 1.3, blending: 'normal' }));
+    const trail = this.push(L.trail(this.scene, { color: st.color, core: st.glow, edge: st.edge, width: size * (st.trailW / 0.4) * 0.9, points: 16, camera: this.camera, head: () => (!alive ? null : group.visible ? head : undefined), intensity: st.dark ? 0.9 : 1.3, blending: 'normal' }));
     const light = this.push(L.glowDisc(this.scene, { pos: [0, 0, 0], color: st.color, radius: 0.5 + size * 0.8, opacity: 0.22, intensity: 1, follow: () => head }));
     let emit = 0, t = 0, puffT = 0;
     const self = {
@@ -264,6 +266,7 @@ export class FX {
         t += dt;
         head[0] = pos[0]; head[1] = pos[1]; head[2] = pos[2];
         group.position.set(...pos);
+        group.visible = true;
         core.material.uniforms.uTime.value += dt;
         const pulse = 1 + 0.12 * Math.sin(t * 30);
         const gs = o.grow ? o.grow() : 1;

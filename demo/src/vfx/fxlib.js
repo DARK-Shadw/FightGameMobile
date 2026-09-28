@@ -290,6 +290,7 @@ export function trail(scene, o) {
   let fading = -1;
   const e = new Effect(mesh, 0, (k, dt) => {
     const head = o.head();
+    if (head === undefined) return; // not started yet
     if (head && fading < 0) { pts.unshift(head.slice()); if (pts.length > N) pts.pop(); }
     else { fading = Math.max(0, fading < 0 ? 0 : fading) + dt; pts.pop(); if (!pts.length) { e.kill(); return; } }
     const w = o.width ?? 0.3;
