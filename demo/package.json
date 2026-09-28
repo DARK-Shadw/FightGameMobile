@@ -1,0 +1,17 @@
+{
+  "name": "fightgame-demo",
+  "private": true,
+  "type": "module",
+  "description": "Browser demo: Brawl Stars-style arena with procedurally generated powers, characters and VFX.",
+  "scripts": {
+    "dev": "node tools/serve.js",
+    "build": "node tools/build.js",
+    "shot": "node tools/shoot.cjs"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

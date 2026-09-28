@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a0f2e">
+<title>Skill Forge Arena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"}}</script>
+<style>
+  :root { --ink: #1a0f2e; --bg: #140a26; --gold: #ffc02e; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+  canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #boot { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: radial-gradient(ellipse at 50% 38%, #4a2a8a 0%, #241245 45%, #120824 100%); font-family: 'Lilita One', system-ui, sans-serif; color: #fff; transition: opacity .5s; }
+  #boot.done { opacity: 0; pointer-events: none; }
+  #boot .logo { font-size: clamp(40px, 10vw, 88px); line-height: .92; text-align: center; letter-spacing: 1px;
+    text-shadow: 0 3px 0 var(--ink), 3px 0 0 var(--ink), -3px 0 0 var(--ink), 0 -3px 0 var(--ink), 3px 3px 0 var(--ink), -3px 3px 0 var(--ink), 3px -3px 0 var(--ink), -3px -3px 0 var(--ink), 0 8px 0 rgba(0,0,0,.35); }
+  #boot .logo span { color: var(--gold); }
+  #boot .rune { width: 84px; height: 84px; border-radius: 50%; border: 6px solid #ffe9a8; box-shadow: 0 0 34px 10px rgba(255,192,46,.55), inset 0 0 18px rgba(255,192,46,.6); animation: spin 2.4s linear infinite; position: relative; }
+  #boot .rune::before, #boot .rune::after { content: ''; position: absolute; inset: 14px; border: 4px solid #ffe9a8; border-radius: 4px; transform: rotate(45deg); }
+  #boot .rune::after { inset: 24px; border-radius: 50%; transform: none; background: #fff3c8; box-shadow: 0 0 16px #ffc02e; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #boot .bar { width: min(70vw, 360px); height: 18px; border-radius: 10px; background: var(--ink); border: 3px solid var(--ink); box-shadow: 0 4px 0 rgba(0,0,0,.35); overflow: hidden; }
+  #boot .fill { width: 0; height: 100%; border-radius: 7px; background: linear-gradient(#ffe14a, #ff9a1a); box-shadow: inset 0 -4px 0 rgba(0,0,0,.18); transition: width .25s; }
+  #boot .tip { font-family: system-ui, sans-serif; font-size: 14px; opacity: .85; min-height: 1.2em; text-align: center; padding: 0 16px; }
+  @media (prefers-reduced-motion: reduce) { #boot .rune { animation: none; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="boot">
+  <div class="rune"></div>
+  <div class="logo">SKILL FORGE<br><span>ARENA</span></div>
+  <div class="bar"><div class="fill"></div></div>
+  <div class="tip">Loading…</div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
